@@ -1,9 +1,9 @@
 name: AFL Predictions
 
 on:
-  # Thursday 6am AEST (= Wednesday 8pm UTC). AFL rounds start Thursday night.
+  # Thursday 2pm AEST (= Thursday 4am UTC). Tipsters publish picks by midday.
   schedule:
-    - cron: '0 20 * * 3'
+    - cron: '0 4 * * 4'
   # Also allows manual trigger from the GitHub Actions tab
   workflow_dispatch:
 
