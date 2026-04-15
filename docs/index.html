@@ -50,15 +50,15 @@
 <body>
   <div class="header">
     <h1>AFL Predictions</h1>
-    <div class="sub">Round 6 &nbsp;·&nbsp; Generated Wednesday 15 April 2026, 3:17 PM</div>
+    <div class="sub">Round 6 &nbsp;·&nbsp; Generated Wednesday 15 April 2026, 7:35 PM</div>
   </div>
 
   <div class="container">
     <div class="badges">
       <div class="badge"><div class="val">9</div><div class="lbl">Games this round</div></div>
-      <div class="badge"><div class="val">6</div><div class="lbl">High confidence</div></div>
+      <div class="badge"><div class="val">7</div><div class="lbl">High confidence</div></div>
       <div class="badge"><div class="val">1</div><div class="lbl">Medium confidence</div></div>
-      <div class="badge"><div class="val">62%</div><div class="lbl">Model accuracy (CV)</div></div>
+      <div class="badge"><div class="val">63%</div><div class="lbl">Model accuracy (CV)</div></div>
     </div>
 
     <div class="legend">
@@ -77,36 +77,12 @@
       <tbody>
         
     <tr>
-      <td style="font-weight:700;color:#002B5C;">North Melbourne</td>
-      <td class="vs">vs</td>
-      <td style="color:#444;">Richmond</td>
-      <td class="venue">Docklands</td>
-      <td class="winner">North Melbourne</td>
-      <td class="conf high">88%</td>
-    </tr>
-    <tr>
-      <td style="font-weight:700;color:#002B5C;">Hawthorn</td>
-      <td class="vs">vs</td>
-      <td style="color:#444;">Port Adelaide</td>
-      <td class="venue">Docklands</td>
-      <td class="winner">Hawthorn</td>
-      <td class="conf high">81%</td>
-    </tr>
-    <tr>
-      <td style="font-weight:700;color:#002B5C;">Adelaide</td>
-      <td class="vs">vs</td>
-      <td style="color:#444;">St Kilda</td>
-      <td class="venue">Adelaide Oval</td>
-      <td class="winner">Adelaide</td>
-      <td class="conf high">81%</td>
-    </tr>
-    <tr>
       <td style="font-weight:700;color:#002B5C;">Gold Coast</td>
       <td class="vs">vs</td>
       <td style="color:#444;">Essendon</td>
       <td class="venue">Carrara</td>
       <td class="winner">Gold Coast</td>
-      <td class="conf high">80%</td>
+      <td class="conf high">94%</td>
     </tr>
     <tr>
       <td style="font-weight:700;color:#002B5C;">Sydney</td>
@@ -114,7 +90,39 @@
       <td style="color:#444;">Greater Western Sydney</td>
       <td class="venue">S.C.G.</td>
       <td class="winner">Sydney</td>
-      <td class="conf high">80%</td>
+      <td class="conf high">88%</td>
+    </tr>
+    <tr>
+      <td style="color:#444;">West Coast</td>
+      <td class="vs">vs</td>
+      <td style="font-weight:700;color:#002B5C;">Fremantle</td>
+      <td class="venue">Perth Stadium</td>
+      <td class="winner">Fremantle</td>
+      <td class="conf high">86%</td>
+    </tr>
+    <tr>
+      <td style="font-weight:700;color:#002B5C;">North Melbourne</td>
+      <td class="vs">vs</td>
+      <td style="color:#444;">Richmond</td>
+      <td class="venue">Docklands</td>
+      <td class="winner">North Melbourne</td>
+      <td class="conf high">83%</td>
+    </tr>
+    <tr>
+      <td style="font-weight:700;color:#002B5C;">Hawthorn</td>
+      <td class="vs">vs</td>
+      <td style="color:#444;">Port Adelaide</td>
+      <td class="venue">Docklands</td>
+      <td class="winner">Hawthorn</td>
+      <td class="conf high">82%</td>
+    </tr>
+    <tr>
+      <td style="font-weight:700;color:#002B5C;">Adelaide</td>
+      <td class="vs">vs</td>
+      <td style="color:#444;">St Kilda</td>
+      <td class="venue">Adelaide Oval</td>
+      <td class="winner">Adelaide</td>
+      <td class="conf high">82%</td>
     </tr>
     <tr>
       <td style="color:#444;">Carlton</td>
@@ -122,7 +130,7 @@
       <td style="font-weight:700;color:#002B5C;">Collingwood</td>
       <td class="venue">M.C.G.</td>
       <td class="winner">Collingwood</td>
-      <td class="conf high">75%</td>
+      <td class="conf high">78%</td>
     </tr>
     <tr>
       <td style="color:#444;">Melbourne</td>
@@ -130,7 +138,7 @@
       <td style="font-weight:700;color:#002B5C;">Brisbane Lions</td>
       <td class="venue">M.C.G.</td>
       <td class="winner">Brisbane Lions</td>
-      <td class="conf med">59%</td>
+      <td class="conf med">61%</td>
     </tr>
     <tr>
       <td style="color:#444;">Geelong</td>
@@ -138,15 +146,7 @@
       <td style="font-weight:700;color:#002B5C;">Western Bulldogs</td>
       <td class="venue">Kardinia Park</td>
       <td class="winner">Western Bulldogs</td>
-      <td class="conf low">54%</td>
-    </tr>
-    <tr>
-      <td style="font-weight:700;color:#002B5C;">West Coast</td>
-      <td class="vs">vs</td>
-      <td style="color:#444;">Fremantle</td>
-      <td class="venue">Perth Stadium</td>
-      <td class="winner">West Coast</td>
-      <td class="conf low">51%</td>
+      <td class="conf low">50%</td>
     </tr>
       </tbody>
     </table>
@@ -154,7 +154,7 @@
     <div class="footer">
       Model: XGBoost · Trained on AFL 2015–2025 via
       <a href="https://api.squiggle.com.au">Squiggle API</a> ·
-      Features: form, margin, days rest, ladder, H2H, venue, tipster consensus ·
+      Features: form, margin, days rest, ladder, H2H, venue, Elo rating, tipster consensus ·
       <a href="https://github.com/forbesl1/afl-predictor">Source on GitHub</a>
     </div>
   </div>

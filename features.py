@@ -23,6 +23,12 @@ import pandas as pd
 
 FORM_N = 5  # number of recent games used for form/margin calculation
 
+# Elo constants (tuned for AFL)
+ELO_K        = 40     # update factor per game
+ELO_HOME_ADV = 65     # home ground advantage in Elo points
+ELO_MEAN     = 1500   # starting / mean rating
+ELO_REGRESS  = 0.3    # fraction of gap from mean regressed away each off-season
+
 FEATURE_COLS = [
     "home_form",       "away_form",       "form_diff",
     "h2h",             "home_venue",
@@ -30,6 +36,7 @@ FEATURE_COLS = [
     "home_days_rest",  "away_days_rest",  "rest_diff",
     "home_ladder_pct", "away_ladder_pct", "ladder_diff",
     "tipster_consensus",
+    "home_elo",        "away_elo",        "elo_diff",        "elo_win_prob",
 ]
 
 
@@ -122,19 +129,68 @@ def _venue_rate(df, team, venue, before_date):
     return float(results["won"].mean()) if len(results) > 0 else 0.5
 
 
-def build_training_features(df, tips_lookup=None):
+def _elo_expected(home_elo, away_elo):
+    """Expected win probability for the home team given both Elo ratings."""
+    return 1 / (1 + 10 ** ((away_elo - home_elo - ELO_HOME_ADV) / 400))
+
+
+def compute_elo(df):
+    """
+    Compute pre-game Elo ratings for every completed game in df.
+    df must already be sorted by date ascending (to_df() guarantees this).
+
+    Returns:
+        elo_by_idx  — {df_index: (home_elo, away_elo)} — used for training features
+        current_elo — {team: elo} after all games — used for prediction features
+    """
+    ratings    = {}
+    elo_by_idx = {}
+    prev_year  = None
+
+    for idx, row in df.iterrows():
+        home = row["hteam"]
+        away = row["ateam"]
+        year = row["date"].year
+
+        if home not in ratings:
+            ratings[home] = ELO_MEAN
+        if away not in ratings:
+            ratings[away] = ELO_MEAN
+
+        # Partial regression toward mean at the start of each new season
+        if prev_year is not None and year != prev_year:
+            for team in list(ratings):
+                ratings[team] = ELO_MEAN + (1 - ELO_REGRESS) * (ratings[team] - ELO_MEAN)
+        prev_year = year
+
+        home_elo = ratings[home]
+        away_elo = ratings[away]
+        elo_by_idx[idx] = (home_elo, away_elo)
+
+        # Update ratings from result
+        expected = _elo_expected(home_elo, away_elo)
+        actual   = float(row["home_win"])
+        ratings[home] += ELO_K * (actual - expected)
+        ratings[away] += ELO_K * ((1 - actual) - (1 - expected))
+
+    return elo_by_idx, ratings
+
+
+def build_training_features(df, tips_lookup=None, elo_lookup=None):
     """
     Build a feature + label DataFrame from all completed games in df.
     Each row uses only games *prior* to that game's date (no leakage).
 
-    tips_lookup: dict of {game_id: home_consensus_float} from Squiggle tipsters.
-                 If None or game not found, tipster_consensus defaults to 0.5.
+    tips_lookup: {game_id: home_consensus} from Squiggle tipsters.
+    elo_lookup:  {df_index: (home_elo, away_elo)} from compute_elo().
     """
     if tips_lookup is None:
         tips_lookup = {}
+    if elo_lookup is None:
+        elo_lookup = {}
 
     rows = []
-    for _, row in df.iterrows():
+    for idx, row in df.iterrows():
         home    = row["hteam"]
         away    = row["ateam"]
         date    = row["date"]
@@ -149,6 +205,8 @@ def build_training_features(df, tips_lookup=None):
         ar  = _days_rest(df, away, date)
         hl  = _ladder_pct(df, home, date)
         al  = _ladder_pct(df, away, date)
+
+        home_elo, away_elo = elo_lookup.get(idx, (ELO_MEAN, ELO_MEAN))
 
         rows.append({
             "home_form":        hf,
@@ -166,19 +224,27 @@ def build_training_features(df, tips_lookup=None):
             "away_ladder_pct":  al,
             "ladder_diff":      hl - al,
             "tipster_consensus": tips_lookup.get(game_id, 0.5),
+            "home_elo":         home_elo,
+            "away_elo":         away_elo,
+            "elo_diff":         home_elo - away_elo,
+            "elo_win_prob":     _elo_expected(home_elo, away_elo),
             "home_win":         int(row["home_win"]),
         })
 
     return pd.DataFrame(rows)
 
 
-def build_prediction_features(df, upcoming_games, tips_lookup=None):
+def build_prediction_features(df, upcoming_games, tips_lookup=None, current_elo=None):
     """
     Build a feature DataFrame for upcoming (incomplete) games.
     Uses all available historical data as context.
+
+    current_elo: {team: elo} from compute_elo() — ratings after all training games.
     """
     if tips_lookup is None:
         tips_lookup = {}
+    if current_elo is None:
+        current_elo = {}
 
     now  = pd.Timestamp.now(tz="UTC")
     rows = []
@@ -199,6 +265,9 @@ def build_prediction_features(df, upcoming_games, tips_lookup=None):
         ar  = _days_rest(df, away, now)
         hl  = _ladder_pct(df, home, now)
         al  = _ladder_pct(df, away, now)
+
+        home_elo = current_elo.get(home, ELO_MEAN)
+        away_elo = current_elo.get(away, ELO_MEAN)
 
         rows.append({
             "home_team":        home,
@@ -223,6 +292,10 @@ def build_prediction_features(df, upcoming_games, tips_lookup=None):
             "away_ladder_pct":  al,
             "ladder_diff":      hl - al,
             "tipster_consensus": tips_lookup.get(game_id, 0.5),
+            "home_elo":         home_elo,
+            "away_elo":         away_elo,
+            "elo_diff":         home_elo - away_elo,
+            "elo_win_prob":     _elo_expected(home_elo, away_elo),
         })
 
     return pd.DataFrame(rows) if rows else pd.DataFrame()

@@ -12,7 +12,7 @@ import pandas as pd
 from collections import defaultdict
 
 from fetch_data import fetch_all_tips, fetch_training_games, fetch_upcoming, fetch_upcoming_tips
-from features import build_prediction_features, build_training_features, to_df
+from features import build_prediction_features, build_training_features, compute_elo, to_df
 from predict import predict
 from train import train
 
@@ -188,7 +188,7 @@ def generate_html(results, roundname, generated_at, accuracy):
     <div class="footer">
       Model: XGBoost · Trained on AFL {START_YEAR}–{END_YEAR} via
       <a href="https://api.squiggle.com.au">Squiggle API</a> ·
-      Features: form, margin, days rest, ladder, H2H, venue, tipster consensus ·
+      Features: form, margin, days rest, ladder, H2H, venue, Elo rating, tipster consensus ·
       <a href="https://github.com/forbesl1/afl-predictor">Source on GitHub</a>
     </div>
   </div>
@@ -215,7 +215,8 @@ def run():
     print(f"  Tips indexed: {len(tips_lookup)} games")
 
     print("\n[4/5] Building training features + training model...")
-    feat_df = build_training_features(df, tips_lookup)
+    elo_lookup, current_elo = compute_elo(df)
+    feat_df = build_training_features(df, tips_lookup=tips_lookup, elo_lookup=elo_lookup)
     print(f"  Feature rows: {len(feat_df)}")
     model, accuracy = train(feat_df)
 
@@ -233,7 +234,7 @@ def run():
         upcoming_tips   = fetch_upcoming_tips(current_year, round_num) if round_num else []
         upcoming_lookup = _build_tips_lookup(upcoming_tips)
         print(f"  Tipster picks available: {len(upcoming_lookup)}/{len(games)} games")
-        pred_df = build_prediction_features(df, games, upcoming_lookup)
+        pred_df = build_prediction_features(df, games, tips_lookup=upcoming_lookup, current_elo=current_elo)
         results = predict(pred_df, model)
 
     os.makedirs(DOCS_DIR, exist_ok=True)
