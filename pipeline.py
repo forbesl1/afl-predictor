@@ -9,17 +9,39 @@ import os
 
 import pandas as pd
 
-from fetch_data import fetch_training_games, fetch_upcoming
+from collections import defaultdict
+
+from fetch_data import fetch_all_tips, fetch_training_games, fetch_upcoming, fetch_upcoming_tips
 from features import build_prediction_features, build_training_features, to_df
 from predict import predict
 from train import train
 
-START_YEAR = 2022
+START_YEAR = 2015
 END_YEAR   = 2025   # train on completed seasons; 2026 games are predicted
 DOCS_DIR   = "docs"
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
+def _build_tips_lookup(tips_list):
+    """
+    Convert a flat list of Squiggle tip objects into a lookup dict:
+      {game_id: home_consensus}
+    where home_consensus = fraction of tipsters who tipped the home team.
+    """
+    game_tips = defaultdict(list)
+    for tip in tips_list:
+        game_id = tip.get("gameid")
+        if game_id is None:
+            continue
+        tipped_home = 1 if tip.get("tip") == tip.get("hteam") else 0
+        game_tips[game_id].append(tipped_home)
+    return {
+        gid: sum(tips) / len(tips)
+        for gid, tips in game_tips.items()
+        if tips
+    }
+
 
 def _next_round_games(upcoming):
     """Return (games, round_num, roundname) for the earliest incomplete round."""
@@ -164,9 +186,9 @@ def generate_html(results, roundname, generated_at, accuracy):
     </table>
 
     <div class="footer">
-      Model: Logistic Regression · Trained on AFL 2022–2025 via
+      Model: XGBoost · Trained on AFL {START_YEAR}–{END_YEAR} via
       <a href="https://api.squiggle.com.au">Squiggle API</a> ·
-      Features: recent form (last 5), head-to-head, venue win rate ·
+      Features: form, margin, days rest, ladder, H2H, venue, tipster consensus ·
       <a href="https://github.com/forbesl1/afl-predictor">Source on GitHub</a>
     </div>
   </div>
@@ -179,7 +201,7 @@ def generate_html(results, roundname, generated_at, accuracy):
 def run():
     print("=== AFL Predictor Pipeline ===\n")
 
-    print("[1/5] Fetching training data (2022–2025)...")
+    print(f"[1/5] Fetching training data ({START_YEAR}–{END_YEAR})...")
     raw = fetch_training_games(START_YEAR, END_YEAR)
     print(f"  Total raw games: {len(raw)}")
 
@@ -187,16 +209,19 @@ def run():
     df = to_df(raw)
     print(f"  Completed games: {len(df)}")
 
-    print("\n[3/5] Building training features...")
-    feat_df = build_training_features(df)
-    print(f"  Feature rows: {len(feat_df)}")
+    print("\n[3/5] Fetching tipster data...")
+    all_tips    = fetch_all_tips(START_YEAR, END_YEAR)
+    tips_lookup = _build_tips_lookup(all_tips)
+    print(f"  Tips indexed: {len(tips_lookup)} games")
 
-    print("\n[4/5] Training model...")
+    print("\n[4/5] Building training features + training model...")
+    feat_df = build_training_features(df, tips_lookup)
+    print(f"  Feature rows: {len(feat_df)}")
     model, accuracy = train(feat_df)
 
     print("\n[5/5] Predicting next round (2026)...")
     upcoming = fetch_upcoming()
-    games, _, roundname = _next_round_games(upcoming)
+    games, round_num, roundname = _next_round_games(upcoming)
 
     if not games:
         print("  No upcoming games found — writing off-season page.")
@@ -204,7 +229,11 @@ def run():
         results   = pd.DataFrame()
     else:
         print(f"  {roundname}: {len(games)} games")
-        pred_df = build_prediction_features(df, games)
+        current_year    = datetime.date.today().year
+        upcoming_tips   = fetch_upcoming_tips(current_year, round_num) if round_num else []
+        upcoming_lookup = _build_tips_lookup(upcoming_tips)
+        print(f"  Tipster picks available: {len(upcoming_lookup)}/{len(games)} games")
+        pred_df = build_prediction_features(df, games, upcoming_lookup)
         results = predict(pred_df, model)
 
     os.makedirs(DOCS_DIR, exist_ok=True)

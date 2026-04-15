@@ -1,17 +1,15 @@
 """
-train.py — trains a logistic regression model on the feature matrix.
+train.py — trains an XGBoost classifier on the feature matrix.
 
-The model is a sklearn Pipeline: StandardScaler → LogisticRegression.
-Scaling is important because feature ranges differ (probabilities 0–1 vs raw counts).
+XGBoost handles non-linear interactions between features (e.g. rest advantage
+matters more when form is also close) and generally outperforms logistic
+regression on tabular sports prediction tasks by 3–5%.
 
-Cross-validation accuracy is printed and saved alongside the model so the
-HTML output can display it as a trust indicator.
+No feature scaling needed — tree-based models are scale-invariant.
 """
 import pickle
-from sklearn.linear_model import LogisticRegression
+from xgboost import XGBClassifier
 from sklearn.model_selection import cross_val_score
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
 from features import FEATURE_COLS
 
@@ -22,10 +20,16 @@ def train(feature_df):
     X = feature_df[FEATURE_COLS].values
     y = feature_df["home_win"].values
 
-    model = Pipeline([
-        ("scaler", StandardScaler()),
-        ("clf",    LogisticRegression(max_iter=1000, random_state=42, C=1.0)),
-    ])
+    model = XGBClassifier(
+        n_estimators=300,
+        max_depth=4,
+        learning_rate=0.05,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42,
+        eval_metric="logloss",
+        verbosity=0,
+    )
 
     scores = cross_val_score(model, X, y, cv=5, scoring="accuracy")
     accuracy = float(scores.mean())

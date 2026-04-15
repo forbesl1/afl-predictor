@@ -2,18 +2,35 @@
 features.py — converts raw game data into a feature matrix for modelling.
 
 Features computed for each game:
-  home_form   — home team win rate in last 5 games
-  away_form   — away team win rate in last 5 games
-  form_diff   — home_form - away_form (composite signal)
-  h2h         — home team win rate vs this specific away team (all history)
-  home_venue  — home team win rate at this venue (all history)
+  home_form        — home team win rate in last 5 games
+  away_form        — away team win rate in last 5 games
+  form_diff        — home_form - away_form
+  h2h              — home team win rate vs this specific away team (all history)
+  home_venue       — home team win rate at this venue (all history)
+  home_avg_margin  — home team average score margin in last 5 games (signed)
+  away_avg_margin  — away team average score margin in last 5 games (signed)
+  margin_diff      — home_avg_margin - away_avg_margin
+  home_days_rest   — days since home team's last game
+  away_days_rest   — days since away team's last game
+  rest_diff        — home_days_rest - away_days_rest
+  home_ladder_pct  — home team season win % up to this game
+  away_ladder_pct  — away team season win % up to this game
+  ladder_diff      — home_ladder_pct - away_ladder_pct
+  tipster_consensus — fraction of Squiggle tipsters backing home team (0.5 if unavailable)
 """
 import numpy as np
 import pandas as pd
 
-FORM_N = 5  # number of recent games used for form calculation
+FORM_N = 5  # number of recent games used for form/margin calculation
 
-FEATURE_COLS = ["home_form", "away_form", "form_diff", "h2h", "home_venue"]
+FEATURE_COLS = [
+    "home_form",       "away_form",       "form_diff",
+    "h2h",             "home_venue",
+    "home_avg_margin", "away_avg_margin", "margin_diff",
+    "home_days_rest",  "away_days_rest",  "rest_diff",
+    "home_ladder_pct", "away_ladder_pct", "ladder_diff",
+    "tipster_consensus",
+]
 
 
 def to_df(games):
@@ -37,12 +54,16 @@ def to_df(games):
 
 def _team_results(df, team):
     """
-    All completed games involving team, with a 'won' column:
-      1 = team won, 0 = team lost.
+    All completed games involving team with derived columns:
+      won    — 1 if team won, 0 if lost
+      margin — signed score difference from team's perspective (positive = winning)
     """
     mask = (df["hteam"] == team) | (df["ateam"] == team)
     sub = df[mask].copy()
-    sub["won"] = np.where(sub["hteam"] == team, sub["home_win"], 1 - sub["home_win"])
+    is_home = sub["hteam"] == team
+    sub["won"]    = np.where(is_home, sub["home_win"],             1 - sub["home_win"])
+    sub["margin"] = np.where(is_home, sub["hscore"] - sub["ascore"],
+                                      sub["ascore"] - sub["hscore"])
     return sub
 
 
@@ -50,6 +71,31 @@ def _form(df, team, before_date, n=FORM_N):
     """Win rate of team in their last n games before before_date."""
     results = _team_results(df, team)
     results = results[results["date"] < before_date].tail(n)
+    return float(results["won"].mean()) if len(results) > 0 else 0.5
+
+
+def _avg_margin(df, team, before_date, n=FORM_N):
+    """Average signed margin in team's last n games before before_date."""
+    results = _team_results(df, team)
+    results = results[results["date"] < before_date].tail(n)
+    return float(results["margin"].mean()) if len(results) > 0 else 0.0
+
+
+def _days_rest(df, team, before_date):
+    """Days since team's last game before before_date. Defaults to 7 if no history."""
+    results = _team_results(df, team)
+    results = results[results["date"] < before_date]
+    if len(results) == 0:
+        return 7
+    last_game = results["date"].max()
+    delta = before_date - last_game
+    return int(delta.days)
+
+
+def _ladder_pct(df, team, before_date):
+    """Team's season win percentage up to before_date (all-time, not per season)."""
+    results = _team_results(df, team)
+    results = results[results["date"] < before_date]
     return float(results["won"].mean()) if len(results) > 0 else 0.5
 
 
@@ -76,61 +122,107 @@ def _venue_rate(df, team, venue, before_date):
     return float(results["won"].mean()) if len(results) > 0 else 0.5
 
 
-def build_training_features(df):
+def build_training_features(df, tips_lookup=None):
     """
     Build a feature + label DataFrame from all completed games in df.
     Each row uses only games *prior* to that game's date (no leakage).
+
+    tips_lookup: dict of {game_id: home_consensus_float} from Squiggle tipsters.
+                 If None or game not found, tipster_consensus defaults to 0.5.
     """
+    if tips_lookup is None:
+        tips_lookup = {}
+
     rows = []
     for _, row in df.iterrows():
-        home  = row["hteam"]
-        away  = row["ateam"]
-        date  = row["date"]
-        venue = row["venue"]
+        home    = row["hteam"]
+        away    = row["ateam"]
+        date    = row["date"]
+        venue   = row["venue"]
+        game_id = row.get("id")
 
-        hf = _form(df, home, date)
-        af = _form(df, away, date)
+        hf  = _form(df, home, date)
+        af  = _form(df, away, date)
+        hm  = _avg_margin(df, home, date)
+        am  = _avg_margin(df, away, date)
+        hr  = _days_rest(df, home, date)
+        ar  = _days_rest(df, away, date)
+        hl  = _ladder_pct(df, home, date)
+        al  = _ladder_pct(df, away, date)
+
         rows.append({
-            "home_form":  hf,
-            "away_form":  af,
-            "form_diff":  hf - af,
-            "h2h":        _h2h(df, home, away, date),
-            "home_venue": _venue_rate(df, home, venue, date),
-            "home_win":   int(row["home_win"]),
+            "home_form":        hf,
+            "away_form":        af,
+            "form_diff":        hf - af,
+            "h2h":              _h2h(df, home, away, date),
+            "home_venue":       _venue_rate(df, home, venue, date),
+            "home_avg_margin":  hm,
+            "away_avg_margin":  am,
+            "margin_diff":      hm - am,
+            "home_days_rest":   hr,
+            "away_days_rest":   ar,
+            "rest_diff":        hr - ar,
+            "home_ladder_pct":  hl,
+            "away_ladder_pct":  al,
+            "ladder_diff":      hl - al,
+            "tipster_consensus": tips_lookup.get(game_id, 0.5),
+            "home_win":         int(row["home_win"]),
         })
 
     return pd.DataFrame(rows)
 
 
-def build_prediction_features(df, upcoming_games):
+def build_prediction_features(df, upcoming_games, tips_lookup=None):
     """
-    Build a feature DataFrame for a list of upcoming (incomplete) games.
-    Uses all available historical data (no date cutoff — the future hasn't happened yet).
+    Build a feature DataFrame for upcoming (incomplete) games.
+    Uses all available historical data as context.
     """
-    now = pd.Timestamp.now(tz="UTC")
+    if tips_lookup is None:
+        tips_lookup = {}
+
+    now  = pd.Timestamp.now(tz="UTC")
     rows = []
 
     for g in upcoming_games:
-        home  = (g.get("hteam")  or "").strip()
-        away  = (g.get("ateam")  or "").strip()
-        venue = (g.get("venue")  or "").strip()
+        home    = (g.get("hteam")  or "").strip()
+        away    = (g.get("ateam")  or "").strip()
+        venue   = (g.get("venue")  or "").strip()
+        game_id = g.get("id")
         if not home or not away:
             continue
 
-        hf = _form(df, home, now)
-        af = _form(df, away, now)
+        hf  = _form(df, home, now)
+        af  = _form(df, away, now)
+        hm  = _avg_margin(df, home, now)
+        am  = _avg_margin(df, away, now)
+        hr  = _days_rest(df, home, now)
+        ar  = _days_rest(df, away, now)
+        hl  = _ladder_pct(df, home, now)
+        al  = _ladder_pct(df, away, now)
+
         rows.append({
-            "home_team":  home,
-            "away_team":  away,
-            "venue":      venue,
-            "round":      g.get("round"),
-            "roundname":  g.get("roundname") or f"Round {g.get('round')}",
-            "date":       g.get("date", ""),
-            "home_form":  hf,
-            "away_form":  af,
-            "form_diff":  hf - af,
-            "h2h":        _h2h(df, home, away, now),
-            "home_venue": _venue_rate(df, home, venue, now),
+            "home_team":        home,
+            "away_team":        away,
+            "venue":            venue,
+            "round":            g.get("round"),
+            "roundname":        g.get("roundname") or f"Round {g.get('round')}",
+            "date":             g.get("date", ""),
+            "game_id":          game_id,
+            "home_form":        hf,
+            "away_form":        af,
+            "form_diff":        hf - af,
+            "h2h":              _h2h(df, home, away, now),
+            "home_venue":       _venue_rate(df, home, venue, now),
+            "home_avg_margin":  hm,
+            "away_avg_margin":  am,
+            "margin_diff":      hm - am,
+            "home_days_rest":   hr,
+            "away_days_rest":   ar,
+            "rest_diff":        hr - ar,
+            "home_ladder_pct":  hl,
+            "away_ladder_pct":  al,
+            "ladder_diff":      hl - al,
+            "tipster_consensus": tips_lookup.get(game_id, 0.5),
         })
 
     return pd.DataFrame(rows) if rows else pd.DataFrame()

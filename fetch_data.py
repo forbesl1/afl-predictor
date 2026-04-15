@@ -63,3 +63,30 @@ def fetch_training_games(start_year, end_year):
         print(f"  {year}: {len(season)} games")
         games.extend(season)
     return games
+
+
+def fetch_tips_for_year(year):
+    """
+    All tipster tips for a given year. Caches completed seasons.
+    Returns a flat list of tip objects, each with gameid + tip (predicted winner).
+    """
+    current_year = datetime.date.today().year
+    cache_key = f"tips_{year}" if year < current_year else None
+    data = _fetch({"q": f"tips;year={year}"}, cache_key=cache_key)
+    return data.get("tips", [])
+
+
+def fetch_all_tips(start_year, end_year):
+    """Fetch tips for all training years and return as a flat list."""
+    all_tips = []
+    for year in range(start_year, end_year + 1):
+        tips = fetch_tips_for_year(year)
+        print(f"  {year}: {len(tips)} tips")
+        all_tips.extend(tips)
+    return all_tips
+
+
+def fetch_upcoming_tips(year, round_num):
+    """Tips for a specific upcoming round (never cached)."""
+    data = _fetch({"q": f"tips;year={year};round={round_num}"})
+    return data.get("tips", [])

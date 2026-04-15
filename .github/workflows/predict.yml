@@ -28,6 +28,8 @@ jobs:
 
       - name: Run prediction pipeline
         run: python pipeline.py
+        env:
+          TZ: Australia/Melbourne
 
       - name: Commit and push predictions
         run: |
