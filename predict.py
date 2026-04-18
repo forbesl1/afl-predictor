@@ -4,13 +4,14 @@ predict.py — applies a trained model to upcoming game features.
 from features import FEATURE_COLS
 
 
-def predict(pred_df, model):
+def predict(pred_df, model, margin_model=None):
     """
     Returns pred_df with added columns:
       home_prob        — probability the home team wins
       away_prob        — probability the away team wins
       predicted_winner — team name of predicted winner
       confidence       — max(home_prob, away_prob)
+      predicted_margin — predicted point margin from winner's perspective (if margin_model given)
     """
     if pred_df.empty:
         return pred_df
@@ -28,4 +29,13 @@ def predict(pred_df, model):
         axis=1,
     )
     out["confidence"] = out[["home_prob", "away_prob"]].max(axis=1)
+
+    if margin_model is not None:
+        import numpy as np
+        raw_margin = margin_model.predict(X)
+        # raw_home_margin: positive = home team winning, negative = away team winning
+        out["raw_home_margin"] = np.round(raw_margin).astype(int)
+        # predicted_margin: always positive, from the predicted winner's perspective
+        out["predicted_margin"] = out["raw_home_margin"].abs()
+
     return out

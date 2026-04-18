@@ -8,7 +8,7 @@ regression on tabular sports prediction tasks by 3–5%.
 No feature scaling needed — tree-based models are scale-invariant.
 """
 import pickle
-from xgboost import XGBClassifier
+from xgboost import XGBClassifier, XGBRegressor
 from sklearn.model_selection import cross_val_score
 
 from features import FEATURE_COLS
@@ -41,6 +41,28 @@ def train(feature_df):
         pickle.dump({"model": model, "accuracy": accuracy}, f)
 
     return model, accuracy
+
+
+def train_margin(feature_df):
+    """
+    Train an XGBRegressor to predict the home team's final point margin.
+    Uses the same feature set as the classifier.
+    Returns the fitted regressor.
+    """
+    X = feature_df[FEATURE_COLS].values
+    y = feature_df["home_margin"].values
+
+    regressor = XGBRegressor(
+        n_estimators=300,
+        max_depth=4,
+        learning_rate=0.05,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42,
+        verbosity=0,
+    )
+    regressor.fit(X, y)
+    return regressor
 
 
 def load_model():

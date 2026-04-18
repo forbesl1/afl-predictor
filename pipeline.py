@@ -14,7 +14,7 @@ from collections import defaultdict
 from fetch_data import fetch_all_tips, fetch_training_games, fetch_upcoming, fetch_upcoming_tips
 from features import build_prediction_features, build_training_features, compute_elo, to_df
 from predict import predict
-from train import train
+from train import train, train_margin
 
 START_YEAR = 2015
 END_YEAR   = 2025   # train on completed seasons; 2026 games are predicted
@@ -74,14 +74,16 @@ def _format_dt(dt):
 
 def _game_rows_html(results):
     if results.empty:
-        return '<tr><td colspan="6" style="text-align:center;color:#888;padding:32px 16px">No upcoming games found.</td></tr>'
+        return '<tr><td colspan="7" style="text-align:center;color:#888;padding:32px 16px">No upcoming games found.</td></tr>'
 
+    has_margin = "predicted_margin" in results.columns
     rows = ""
     for _, r in results.sort_values("confidence", ascending=False).iterrows():
         cc   = _confidence_class(r["confidence"])
         home_bold = r["predicted_winner"] == r["home_team"]
         h_style = "font-weight:700;color:#002B5C;" if home_bold else "color:#444;"
         a_style = "font-weight:700;color:#002B5C;" if not home_bold else "color:#444;"
+        margin_td = f'<td class="margin">+{r["predicted_margin"]} pts</td>' if has_margin else ""
         rows += f"""
     <tr>
       <td style="{h_style}">{r['home_team']}</td>
@@ -89,6 +91,7 @@ def _game_rows_html(results):
       <td style="{a_style}">{r['away_team']}</td>
       <td class="venue">{r['venue']}</td>
       <td class="winner">{r['predicted_winner']}</td>
+      {margin_td}
       <td class="conf {cc}">{r['confidence']:.0%}</td>
     </tr>"""
     return rows
@@ -100,9 +103,11 @@ def generate_html(results, roundname, generated_at, accuracy):
         for _, r in results.iterrows():
             conf_counts[_confidence_class(r["confidence"])] += 1
 
+    has_margin  = not results.empty and "predicted_margin" in results.columns
     game_rows   = _game_rows_html(results)
     total_games = len(results)
     date_str    = _format_dt(generated_at)
+    margin_th   = "<th>Margin</th>" if has_margin else ""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -144,6 +149,7 @@ def generate_html(results, roundname, generated_at, accuracy):
     .vs     {{ color: #bbb; font-size: 0.82em; width: 28px; text-align: center; padding: 0; }}
     .venue  {{ color: #888; font-size: 0.82em; }}
     .winner {{ font-weight: 600; color: #0055A5; }}
+    .margin {{ color: #555; font-size: 0.82em; font-style: italic; }}
     .conf   {{ font-weight: 700; border-radius: 20px; padding: 4px 10px; font-size: 0.82em; text-align: center; width: 70px; }}
     .conf.high {{ background: #e6f4ea; color: #1e7e34; }}
     .conf.med  {{ background: #fff3cd; color: #856404; }}
@@ -177,7 +183,7 @@ def generate_html(results, roundname, generated_at, accuracy):
       <thead>
         <tr>
           <th>Home</th><th></th><th>Away</th><th>Venue</th>
-          <th>Predicted Winner</th><th>Confidence</th>
+          <th>Predicted Winner</th>{margin_th}<th>Confidence</th>
         </tr>
       </thead>
       <tbody>
@@ -219,6 +225,8 @@ def run():
     feat_df = build_training_features(df, tips_lookup=tips_lookup, elo_lookup=elo_lookup)
     print(f"  Feature rows: {len(feat_df)}")
     model, accuracy = train(feat_df)
+    margin_model = train_margin(feat_df)
+    print(f"  Margin model trained.")
 
     print("\n[5/5] Predicting next round (2026)...")
     upcoming = fetch_upcoming()
@@ -235,7 +243,7 @@ def run():
         upcoming_lookup = _build_tips_lookup(upcoming_tips)
         print(f"  Tipster picks available: {len(upcoming_lookup)}/{len(games)} games")
         pred_df = build_prediction_features(df, games, tips_lookup=upcoming_lookup, current_elo=current_elo)
-        results = predict(pred_df, model)
+        results = predict(pred_df, model, margin_model=margin_model)
 
     os.makedirs(DOCS_DIR, exist_ok=True)
     out_path = os.path.join(DOCS_DIR, "index.html")
@@ -247,7 +255,8 @@ def run():
     if not results.empty:
         print("\nPredictions summary:")
         for _, r in results.sort_values("confidence", ascending=False).iterrows():
-            print(f"  {r['predicted_winner']:25s} ({r['confidence']:.0%})  —  {r['home_team']} vs {r['away_team']}")
+            margin_str = f"  +{r['predicted_margin']}pts" if "predicted_margin" in r else ""
+            print(f"  {r['predicted_winner']:25s} ({r['confidence']:.0%}){margin_str}  —  {r['home_team']} vs {r['away_team']}")
 
 
 if __name__ == "__main__":

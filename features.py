@@ -53,7 +53,8 @@ def to_df(games):
     df = df.dropna(subset=["hscore", "ascore"])
 
     # home_win: 1 if home team won, 0 if away team won. Draws (~0 in modern AFL) → 0.
-    df["home_win"] = (df["hscore"] > df["ascore"]).astype(int)
+    df["home_win"]    = (df["hscore"] > df["ascore"]).astype(int)
+    df["home_margin"] = df["hscore"] - df["ascore"]
     df["date"] = pd.to_datetime(df["date"], utc=True)
     df = df.sort_values("date").reset_index(drop=True)
     return df
@@ -229,6 +230,7 @@ def build_training_features(df, tips_lookup=None, elo_lookup=None):
             "elo_diff":         home_elo - away_elo,
             "elo_win_prob":     _elo_expected(home_elo, away_elo),
             "home_win":         int(row["home_win"]),
+            "home_margin":      int(row["home_margin"]),
         })
 
     return pd.DataFrame(rows)
