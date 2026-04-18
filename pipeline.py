@@ -15,6 +15,7 @@ from fetch_data import fetch_all_tips, fetch_training_games, fetch_upcoming, fet
 from features import build_prediction_features, build_training_features, compute_elo, to_df
 from predict import predict
 from train import train, train_margin
+from afl_tables import build_stats_lookup
 
 START_YEAR = 2015
 END_YEAR   = 2025   # train on completed seasons; 2026 games are predicted
@@ -220,9 +221,13 @@ def run():
     tips_lookup = _build_tips_lookup(all_tips)
     print(f"  Tips indexed: {len(tips_lookup)} games")
 
+    print("\n[3b] Fetching team stats from afltables...")
+    stats_lookup = build_stats_lookup(START_YEAR, END_YEAR)
+    print(f"  Team-game stat entries: {len(stats_lookup)}")
+
     print("\n[4/5] Building training features + training model...")
     elo_lookup, current_elo = compute_elo(df)
-    feat_df = build_training_features(df, tips_lookup=tips_lookup, elo_lookup=elo_lookup)
+    feat_df = build_training_features(df, tips_lookup=tips_lookup, elo_lookup=elo_lookup, stats_lookup=stats_lookup)
     print(f"  Feature rows: {len(feat_df)}")
     model, accuracy = train(feat_df)
     margin_model = train_margin(feat_df)
@@ -242,7 +247,7 @@ def run():
         upcoming_tips   = fetch_upcoming_tips(current_year, round_num) if round_num else []
         upcoming_lookup = _build_tips_lookup(upcoming_tips)
         print(f"  Tipster picks available: {len(upcoming_lookup)}/{len(games)} games")
-        pred_df = build_prediction_features(df, games, tips_lookup=upcoming_lookup, current_elo=current_elo)
+        pred_df = build_prediction_features(df, games, tips_lookup=upcoming_lookup, current_elo=current_elo, stats_lookup=stats_lookup)
         results = predict(pred_df, model, margin_model=margin_model)
 
     os.makedirs(DOCS_DIR, exist_ok=True)

@@ -37,6 +37,11 @@ FEATURE_COLS = [
     "home_ladder_pct", "away_ladder_pct", "ladder_diff",
     "tipster_consensus",
     "home_elo",        "away_elo",        "elo_diff",        "elo_win_prob",
+    # Team stats from afltables (NaN when unavailable; XGBoost handles missing natively)
+    "home_I50_avg",    "away_I50_avg",    "I50_avg_diff",
+    "home_CL_avg",     "away_CL_avg",     "CL_avg_diff",
+    "home_D_avg",      "away_D_avg",      "D_avg_diff",
+    "home_T_avg",      "away_T_avg",      "T_avg_diff",
 ]
 
 
@@ -130,6 +135,33 @@ def _venue_rate(df, team, venue, before_date):
     return float(results["won"].mean()) if len(results) > 0 else 0.5
 
 
+def _stat_avg(df, team, before_date, stats_lookup, stat, n=FORM_N):
+    """
+    Rolling average of a team stat (e.g. I50, CL) over their last n games
+    before before_date, using the afltables stats lookup.
+
+    Returns float or np.nan if no data is available.
+    """
+    results = _team_results(df, team)
+    results = results[results["date"] < before_date]
+    if "round" not in results.columns:
+        return np.nan
+    recent = results.tail(n)
+    vals = []
+    for _, row in recent.iterrows():
+        year = row["date"].year
+        rnd  = row.get("round")
+        if rnd is None or (isinstance(rnd, float) and np.isnan(rnd)):
+            continue
+        key = (team, year, int(rnd))
+        entry = stats_lookup.get(key)
+        if entry:
+            v = entry.get(stat)
+            if v is not None:
+                vals.append(v)
+    return float(np.mean(vals)) if vals else np.nan
+
+
 def _elo_expected(home_elo, away_elo):
     """Expected win probability for the home team given both Elo ratings."""
     return 1 / (1 + 10 ** ((away_elo - home_elo - ELO_HOME_ADV) / 400))
@@ -177,18 +209,21 @@ def compute_elo(df):
     return elo_by_idx, ratings
 
 
-def build_training_features(df, tips_lookup=None, elo_lookup=None):
+def build_training_features(df, tips_lookup=None, elo_lookup=None, stats_lookup=None):
     """
     Build a feature + label DataFrame from all completed games in df.
     Each row uses only games *prior* to that game's date (no leakage).
 
-    tips_lookup: {game_id: home_consensus} from Squiggle tipsters.
-    elo_lookup:  {df_index: (home_elo, away_elo)} from compute_elo().
+    tips_lookup:  {game_id: home_consensus} from Squiggle tipsters.
+    elo_lookup:   {df_index: (home_elo, away_elo)} from compute_elo().
+    stats_lookup: {(team, year, round): {I50, CL, D, T}} from afltables.
     """
     if tips_lookup is None:
         tips_lookup = {}
     if elo_lookup is None:
         elo_lookup = {}
+    if stats_lookup is None:
+        stats_lookup = {}
 
     rows = []
     for idx, row in df.iterrows():
@@ -208,6 +243,15 @@ def build_training_features(df, tips_lookup=None, elo_lookup=None):
         al  = _ladder_pct(df, away, date)
 
         home_elo, away_elo = elo_lookup.get(idx, (ELO_MEAN, ELO_MEAN))
+
+        h_I50 = _stat_avg(df, home, date, stats_lookup, "I50")
+        a_I50 = _stat_avg(df, away, date, stats_lookup, "I50")
+        h_CL  = _stat_avg(df, home, date, stats_lookup, "CL")
+        a_CL  = _stat_avg(df, away, date, stats_lookup, "CL")
+        h_D   = _stat_avg(df, home, date, stats_lookup, "D")
+        a_D   = _stat_avg(df, away, date, stats_lookup, "D")
+        h_T   = _stat_avg(df, home, date, stats_lookup, "T")
+        a_T   = _stat_avg(df, away, date, stats_lookup, "T")
 
         rows.append({
             "home_form":        hf,
@@ -229,6 +273,18 @@ def build_training_features(df, tips_lookup=None, elo_lookup=None):
             "away_elo":         away_elo,
             "elo_diff":         home_elo - away_elo,
             "elo_win_prob":     _elo_expected(home_elo, away_elo),
+            "home_I50_avg":     h_I50,
+            "away_I50_avg":     a_I50,
+            "I50_avg_diff":     h_I50 - a_I50 if not (np.isnan(h_I50) or np.isnan(a_I50)) else np.nan,
+            "home_CL_avg":      h_CL,
+            "away_CL_avg":      a_CL,
+            "CL_avg_diff":      h_CL - a_CL  if not (np.isnan(h_CL)  or np.isnan(a_CL))  else np.nan,
+            "home_D_avg":       h_D,
+            "away_D_avg":       a_D,
+            "D_avg_diff":       h_D - a_D    if not (np.isnan(h_D)   or np.isnan(a_D))    else np.nan,
+            "home_T_avg":       h_T,
+            "away_T_avg":       a_T,
+            "T_avg_diff":       h_T - a_T    if not (np.isnan(h_T)   or np.isnan(a_T))    else np.nan,
             "home_win":         int(row["home_win"]),
             "home_margin":      int(row["home_margin"]),
         })
@@ -236,17 +292,20 @@ def build_training_features(df, tips_lookup=None, elo_lookup=None):
     return pd.DataFrame(rows)
 
 
-def build_prediction_features(df, upcoming_games, tips_lookup=None, current_elo=None):
+def build_prediction_features(df, upcoming_games, tips_lookup=None, current_elo=None, stats_lookup=None):
     """
     Build a feature DataFrame for upcoming (incomplete) games.
     Uses all available historical data as context.
 
-    current_elo: {team: elo} from compute_elo() — ratings after all training games.
+    current_elo:  {team: elo} from compute_elo() — ratings after all training games.
+    stats_lookup: {(team, year, round): {I50, CL, D, T}} from afltables.
     """
     if tips_lookup is None:
         tips_lookup = {}
     if current_elo is None:
         current_elo = {}
+    if stats_lookup is None:
+        stats_lookup = {}
 
     now  = pd.Timestamp.now(tz="UTC")
     rows = []
@@ -270,6 +329,15 @@ def build_prediction_features(df, upcoming_games, tips_lookup=None, current_elo=
 
         home_elo = current_elo.get(home, ELO_MEAN)
         away_elo = current_elo.get(away, ELO_MEAN)
+
+        h_I50 = _stat_avg(df, home, now, stats_lookup, "I50")
+        a_I50 = _stat_avg(df, away, now, stats_lookup, "I50")
+        h_CL  = _stat_avg(df, home, now, stats_lookup, "CL")
+        a_CL  = _stat_avg(df, away, now, stats_lookup, "CL")
+        h_D   = _stat_avg(df, home, now, stats_lookup, "D")
+        a_D   = _stat_avg(df, away, now, stats_lookup, "D")
+        h_T   = _stat_avg(df, home, now, stats_lookup, "T")
+        a_T   = _stat_avg(df, away, now, stats_lookup, "T")
 
         rows.append({
             "home_team":        home,
@@ -298,6 +366,18 @@ def build_prediction_features(df, upcoming_games, tips_lookup=None, current_elo=
             "away_elo":         away_elo,
             "elo_diff":         home_elo - away_elo,
             "elo_win_prob":     _elo_expected(home_elo, away_elo),
+            "home_I50_avg":     h_I50,
+            "away_I50_avg":     a_I50,
+            "I50_avg_diff":     h_I50 - a_I50 if not (np.isnan(h_I50) or np.isnan(a_I50)) else np.nan,
+            "home_CL_avg":      h_CL,
+            "away_CL_avg":      a_CL,
+            "CL_avg_diff":      h_CL - a_CL  if not (np.isnan(h_CL)  or np.isnan(a_CL))  else np.nan,
+            "home_D_avg":       h_D,
+            "away_D_avg":       a_D,
+            "D_avg_diff":       h_D - a_D    if not (np.isnan(h_D)   or np.isnan(a_D))    else np.nan,
+            "home_T_avg":       h_T,
+            "away_T_avg":       a_T,
+            "T_avg_diff":       h_T - a_T    if not (np.isnan(h_T)   or np.isnan(a_T))    else np.nan,
         })
 
     return pd.DataFrame(rows) if rows else pd.DataFrame()
