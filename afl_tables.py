@@ -1,139 +1,191 @@
 """
-afl_tables.py — downloads per-game team statistics from afltables.com.
+afl_tables.py — scrapes per-game team statistics from afltables.com.
 
-Uses the season player stats CSV (https://afltables.com/afl/stats/{YEAR}_stats.txt),
-which contains one row per player per game for an entire season. These are
-summed by (team, round) to produce team-level totals per game, which are
-then used as rolling-average features in the prediction model.
+For each season, fetches seas/{year}.html to get (round, game_url) pairs,
+then scrapes each individual match page for team-level stat totals.
 
-Column mapping (afltables abbreviation → our key):
+Column mapping (afltables abbreviation → feature key):
   IF  → I50   Inside 50s     — attacking pressure
   CL  → CL    Clearances     — midfield dominance
   DI  → D     Disposals      — possession volume
   TK  → T     Tackles        — defensive pressure
 
-Completed seasons are cached to .cache/. Falls back gracefully (returns {})
-if the download fails — the pipeline continues without these features and
-XGBoost treats missing values as NaN.
+Completed seasons are cached to .cache/aflt_{year}.json. Individual game
+pages are cached to .cache/game_{filename}.json so interrupted runs resume.
+Falls back gracefully — pipeline continues with NaN for missing features.
 """
 import datetime
-import io
 import json
 import os
+import re
 import time
 
-import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 
 CACHE_DIR = ".cache"
+BASE_URL  = "https://afltables.com"
 HEADERS   = {
     "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept":          "text/plain,text/html,*/*;q=0.8",
+    "Accept":          "text/html,*/*;q=0.8",
     "Accept-Language": "en-AU,en;q=0.5",
     "Referer":         "https://afltables.com/afl/afl_index.html",
 }
 
-# afltables CSV column → feature key
 STAT_MAP = {
-    "IF": "I50",   # Inside 50s
-    "CL": "CL",    # Clearances
-    "DI": "D",     # Disposals
-    "TK": "T",     # Tackles
+    "IF": "I50",
+    "CL": "CL",
+    "DI": "D",
+    "TK": "T",
 }
 
-# Squiggle team name → afltables team name where they differ
-# Add entries here if the first run logs "unmatched teams"
+# afltables team name → Squiggle team name where they differ
 TEAM_NAME_FIXES = {
-    "Greater Western Sydney": "GWS Giants",
-    "Brisbane Lions":         "Brisbane",
+    "GWS Giants": "Greater Western Sydney",
+    "Brisbane":   "Brisbane Lions",
 }
-
-
-def _squiggle_to_afltables(name):
-    return TEAM_NAME_FIXES.get(name, name)
 
 
 def _afltables_to_squiggle(name):
-    reverse = {v: k for k, v in TEAM_NAME_FIXES.items()}
-    return reverse.get(name, name)
+    return TEAM_NAME_FIXES.get(name, name)
 
 
-def _fetch_season_csv(year):
+def _get(url, retries=2):
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=30)
+            if resp.status_code == 200:
+                time.sleep(0.3)
+                return resp.text
+        except Exception:
+            pass
+        if attempt < retries:
+            time.sleep(1.0)
+    return None
+
+
+def _fetch_season_game_links(year):
     """
-    Download the afltables season player stats CSV for a given year.
-    Returns a pandas DataFrame, or None on failure.
+    Scrape seas/{year}.html and return [(abs_url, filename), ...] for every
+    game stat link. Round numbers are extracted from each game page instead.
     """
-    url = f"https://afltables.com/afl/stats/{year}_stats.txt"
-    try:
-        session = requests.Session()
-        session.headers.update(HEADERS)
-        resp = session.get(url, timeout=30)
-        if resp.status_code != 200:
-            return None
-        if "Broked" in resp.text[:200]:
-            return None
-        # Try comma-separated first, then tab-separated
-        for sep in (",", "\t"):
-            try:
-                df = pd.read_csv(io.StringIO(resp.text), sep=sep, low_memory=False)
-                if len(df.columns) > 5:
-                    return df
-            except Exception:
-                continue
-        return None
-    except Exception:
-        return None
+    html = _get(f"{BASE_URL}/afl/seas/{year}.html")
+    if not html:
+        return []
+
+    soup = BeautifulSoup(html, "lxml")
+    seen = set()
+    games = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if f"stats/games/{year}/" in href:
+            filename = href.split("/")[-1]
+            if filename not in seen:
+                seen.add(filename)
+                games.append((f"{BASE_URL}/afl/stats/games/{year}/{filename}", filename))
+    return games
 
 
-def _aggregate_to_team_games(df, year):
+def _row_cells_with_colspan(tr):
     """
-    Sum player stats by (team, round) to get team totals per game.
-    Returns: {(squiggle_team_name, year, round_num): {I50, CL, D, T}}
-
-    Prints a diagnostic on the first call so URL/column issues are visible.
+    Return a flat list of cell texts from a <tr>, expanding colspan so that
+    each physical column position maps correctly to the header at that index.
     """
-    # Find the team and round columns (column names vary slightly by year)
-    team_col  = next((c for c in df.columns if c.strip().lower() in ("team", "tm")), None)
-    round_col = next((c for c in df.columns if c.strip().lower() in ("rnd", "round", "rd", "r")), None)
+    cells = []
+    for td in tr.find_all(["th", "td"]):
+        text = td.get_text(strip=True)
+        span = int(td.get("colspan", 1))
+        cells.append(text)
+        for _ in range(span - 1):
+            cells.append("")
+    return cells
 
-    if team_col is None or round_col is None:
-        print(f"  [afltables] Could not find team/round columns in {year} CSV. Columns: {list(df.columns[:15])}")
-        return {}
 
-    # Check which stat columns are present
-    available = {k: v for k, v in STAT_MAP.items() if k in df.columns}
-    if not available:
-        print(f"  [afltables] No stat columns found in {year} CSV. Columns: {list(df.columns[:20])}")
-        return {}
+def _parse_game_stats(html):
+    """
+    Parse a match stats page and return:
+      (round_num, {afltables_team_name: {I50, CL, D, T}})
+    round_num is None for finals or when the round can't be parsed (caller skips those).
+    """
+    soup = BeautifulSoup(html, "lxml")
 
-    # Convert stat columns to numeric, coerce errors to NaN
-    for col in available:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+    # Round number: <b>Round: </b>1  — text node immediately after the <b> tag
+    round_num = None
+    round_b = soup.find("b", string=re.compile(r"Round:\s*$"))
+    if round_b and round_b.next_sibling:
+        m = re.match(r"\s*(\d+)", str(round_b.next_sibling))
+        if m:
+            round_num = int(m.group(1))
 
-    # Filter to regular-season rounds (integer round numbers only; skip finals)
-    df[round_col] = pd.to_numeric(df[round_col], errors="coerce")
-    df = df.dropna(subset=[round_col])
-    df[round_col] = df[round_col].astype(int)
+    result = {}
 
-    agg_dict = {k: "sum" for k in available}
-    grouped = df.groupby([team_col, round_col]).agg(agg_dict).reset_index()
+    for table in soup.find_all("table"):
+        rows = table.find_all("tr")
+        if len(rows) < 3:
+            continue
 
-    lookup = {}
-    for _, row in grouped.iterrows():
-        aflt_team = str(row[team_col]).strip()
-        squiggle_team = _afltables_to_squiggle(aflt_team)
-        rnd = int(row[round_col])
-        stats = {available[k]: (row[k] if pd.notna(row[k]) else None) for k in available}
-        lookup[(squiggle_team, year, rnd)] = stats
+        # Team name is in the first row: "Melbourne Match Statistics [Season][Game by Game]"
+        first_row_text = re.sub(r"\s+", " ", rows[0].get_text()).strip()
+        if "Match Statistics" not in first_row_text:
+            continue
+        before = first_row_text[:first_row_text.index("Match Statistics")].strip()
+        team_name = re.sub(r"\b(Season|Game\s*by\s*Game)\b", "", before, flags=re.IGNORECASE).strip()
+        if not team_name:
+            continue
 
-    return lookup
+        # Header row: first row (after the team name row) with stat abbreviations in <th> cells
+        header_map = {}
+        header_idx = None
+        for i, tr in enumerate(rows[1:], 1):
+            ths = [th.get_text(strip=True) for th in tr.find_all("th")]
+            matched = {col: ths.index(col) for col in STAT_MAP if col in ths}
+            if matched:
+                header_map = matched
+                header_idx = i
+                break
+
+        if not header_map:
+            continue
+
+        # Totals row
+        totals_row = None
+        for tr in rows[header_idx + 1:]:
+            first = tr.find(["th", "td"])
+            if first and re.match(r"Totals?$", first.get_text(strip=True), re.IGNORECASE):
+                totals_row = tr
+                break
+
+        if totals_row is None:
+            continue
+
+        # The Totals label cell is a single <th> with no colspan, while the header has
+        # separate # and Player columns — this creates a 1-position offset.
+        # If the label has colspan >= 2 it already spans both, so offset is 0.
+        label_cell = totals_row.find(["th", "td"])
+        offset = 0 if int(label_cell.get("colspan", 1)) >= 2 else 1
+
+        cells = _row_cells_with_colspan(totals_row)
+        stats = {}
+        for col, feat in STAT_MAP.items():
+            if col in header_map:
+                idx = header_map[col] - offset
+                if 0 <= idx < len(cells):
+                    try:
+                        stats[feat] = float(cells[idx])
+                    except (ValueError, TypeError):
+                        pass
+
+        if stats:
+            result[team_name] = stats
+
+    return round_num, result
 
 
 def fetch_season_stats(year, verbose=True):
     """
     Fetch team-game stats for one season.
     Returns: {(squiggle_team_name, year, round_num): {I50, CL, D, T}}
-    Caches completed seasons to .cache/.
+    Caches completed seasons to .cache/aflt_{year}.json.
     """
     os.makedirs(CACHE_DIR, exist_ok=True)
     current_year = datetime.date.today().year
@@ -142,27 +194,45 @@ def fetch_season_stats(year, verbose=True):
     if cache_path and os.path.exists(cache_path):
         with open(cache_path) as f:
             raw = json.load(f)
-        # JSON keys are strings; restore tuple keys
         return {(t, y, r): stats for (t, y, r), stats in
                 ((json.loads(k), v) for k, v in raw.items())}
 
     if verbose:
         print(f"  Fetching afltables {year}...", end=" ", flush=True)
 
-    df = _fetch_season_csv(year)
-    if df is None:
+    game_links = _fetch_season_game_links(year)
+    if not game_links:
         if verbose:
-            print("FAILED (download error)")
+            print("FAILED (no game links found)")
         return {}
 
-    lookup = _aggregate_to_team_games(df, year)
-    time.sleep(0.5)
+    lookup = {}
+    for url, filename in game_links:
+        game_cache = os.path.join(CACHE_DIR, f"game_{filename}.json")
+        if os.path.exists(game_cache):
+            with open(game_cache) as f:
+                cached = json.load(f)
+            round_num  = cached.get("round_num")
+            game_stats = cached.get("stats", {})
+        else:
+            html = _get(url)
+            if not html:
+                continue
+            round_num, game_stats = _parse_game_stats(html)
+            if game_stats:
+                with open(game_cache, "w") as f:
+                    json.dump({"round_num": round_num, "stats": game_stats}, f)
+
+        if round_num is None:
+            continue  # finals — not used as features
+        for aflt_team, stats in game_stats.items():
+            squiggle_team = _afltables_to_squiggle(aflt_team)
+            lookup[(squiggle_team, year, round_num)] = stats
 
     if verbose:
         print(f"{len(lookup)} team-game entries")
 
     if cache_path and lookup:
-        # Serialize tuple keys as JSON strings
         with open(cache_path, "w") as f:
             json.dump({json.dumps(list(k)): v for k, v in lookup.items()}, f)
 

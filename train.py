@@ -15,21 +15,23 @@ from features import FEATURE_COLS
 
 MODEL_PATH = "model.pkl"
 
+# Shared hyperparameters — imported by analyse.py to keep CV consistent with training
+XGB_BASE = dict(
+    n_estimators=300,
+    max_depth=4,
+    learning_rate=0.05,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    random_state=42,
+    verbosity=0,
+)
+
 
 def train(feature_df):
     X = feature_df[FEATURE_COLS].values
     y = feature_df["home_win"].values
 
-    model = XGBClassifier(
-        n_estimators=300,
-        max_depth=4,
-        learning_rate=0.05,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42,
-        eval_metric="logloss",
-        verbosity=0,
-    )
+    model = XGBClassifier(**XGB_BASE, eval_metric="logloss")
 
     scores = cross_val_score(model, X, y, cv=5, scoring="accuracy")
     accuracy = float(scores.mean())
@@ -52,15 +54,7 @@ def train_margin(feature_df):
     X = feature_df[FEATURE_COLS].values
     y = feature_df["home_margin"].values
 
-    regressor = XGBRegressor(
-        n_estimators=300,
-        max_depth=4,
-        learning_rate=0.05,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42,
-        verbosity=0,
-    )
+    regressor = XGBRegressor(**XGB_BASE)
     regressor.fit(X, y)
     return regressor
 
