@@ -23,3 +23,5 @@ Keep both models' outputs and display them honestly. When the margin model agree
 ## Outcome
 
 Implemented 2026-07-11. First live example the same day: Carlton vs Hawthorn — win model Hawthorn 66%, margin model Carlton +5.
+
+**Addendum (later the same day):** the ensemble flagged as future work above was adopted — see `ensemble_stacked_probability.md`. The published winner now comes from a stacked probability that blends both models, which makes winner/margin disagreements much rarer (Carlton vs Hawthorn itself flipped to a consistent Carlton 51% +5). The naming display stays as the safety net for the residual cases.

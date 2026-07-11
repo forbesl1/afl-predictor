@@ -218,7 +218,7 @@ Rolling averages use the same `FORM_N = 5` window as form features. Stats are lo
 
 ## Models
 
-The pipeline trains two XGBoost models on every run, both using the same 31-feature matrix.
+The pipeline trains two XGBoost models on every run, both using the same 31-feature matrix, plus a logistic-regression **stacker** that blends them into the final published win probability.
 
 ### Classifier — win probability (`XGBClassifier`)
 
@@ -241,11 +241,11 @@ Predicts the probability that the home team wins. XGBoost was chosen over logist
 
 **Evaluation**
 
-5-fold cross-validation is run on the training data. Current OOF accuracy: **~65.4%** (mean across 2015–2025). Season-by-season accuracy ranges from ~59% in unpredictable years to ~72% in more consistent ones. This is consistent with published AFL prediction benchmarks — the best public models achieve 68–72%, and the theoretical maximum (given how much genuine randomness AFL has) is estimated around 72–75%.
+5-fold out-of-fold accuracy of the published (stacked) probability: **~64.7%**, vs ~64.0% for the classifier alone (see the Stacker section). Season-by-season accuracy ranges from ~59% in unpredictable years to ~72% in more consistent ones. This is consistent with published AFL prediction benchmarks — the best public models achieve 68–72%, and the theoretical maximum (given how much genuine randomness AFL has) is estimated around 72–75%.
 
 **Output**
 
-`model.predict_proba(X)` returns `[P(away wins), P(home wins)]` for each game. The higher probability team is the predicted winner. Confidence is `max(home_prob, away_prob)`.
+The classifier's `P(home wins)` is blended with the margin regressor's prediction by the stacker (below) to produce the final probability. The higher-probability team is the predicted winner. Confidence is `max(home_prob, away_prob)`.
 
 Confidence thresholds:
 - **≥70%** — High confidence (green)
@@ -256,9 +256,22 @@ Confidence thresholds:
 
 Predicts the home team's final point margin (`hscore - ascore`). A positive value means the home team wins; negative means the away team wins. The same 34 features and hyperparameters are used (minus `eval_metric`, which is not applicable to regression).
 
-The margin is displayed in the output table as "+18 pts" when the margin model agrees with the classifier's predicted winner. The two models disagree on the winner in ~15% of games (OOF), and neither is reliably right in those cases (classifier 48.5% vs regressor 51.5%), so when they disagree the margin cell instead names the team the margin model favours (e.g. "Carlton +4†") with a footnote — the margin is never silently attributed to the predicted winner. See `docs/decisions/margin_disagreement_display.md`.
+The margin is displayed in the output table as "+18 pts" when the margin model agrees with the published predicted winner. When it doesn't (rarer since the stacker was adopted, but still possible), the margin cell instead names the team the margin model favours (e.g. "Carlton +4†") with a footnote — the margin is never silently attributed to the predicted winner. See `docs/decisions/margin_disagreement_display.md`.
 
-Both models are retrained from scratch on every pipeline run, ensuring they incorporate the most recent results automatically.
+### Stacker — blending the two models (`LogisticRegression`)
+
+The raw classifier and regressor disagree on the winner in ~15% of games (OOF 2015–2025), and neither is reliably right in those cases (classifier 48.5%, regressor 51.5%) — each carries signal the other misses. A logistic regression is fitted on the two base models' **out-of-fold** predictions `[P(home win), predicted margin]` and produces the final published probability.
+
+OOF comparison (2,258 games, second-level CV so the stacker is never scored on rows it was fitted on):
+
+| Probability | Accuracy | Logloss | Brier |
+| ----------- | -------- | ------- | ----- |
+| Classifier alone | 63.99% | 0.6490 | 0.2262 |
+| Stacked | 64.66% | 0.6217 | 0.2170 |
+
+Within the disagreement games, stacking lifts accuracy from 48.5% to ~53%. The stacked probabilities are also noticeably better calibrated (lower logloss/Brier) — the raw classifier was overconfident, so published confidence percentages became more conservative when the stacker was adopted. See `docs/decisions/ensemble_stacked_probability.md`.
+
+All three models are retrained from scratch on every pipeline run, ensuring they incorporate the most recent results automatically.
 
 ---
 

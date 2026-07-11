@@ -14,7 +14,7 @@ from collections import defaultdict
 from fetch_data import fetch_all_tips, fetch_training_games, fetch_upcoming, fetch_upcoming_tips
 from features import build_prediction_features, build_training_features, compute_elo, to_df
 from predict import predict
-from train import train, train_margin
+from train import train_ensemble
 from afl_tables import build_stats_lookup
 
 START_YEAR = 2015
@@ -224,7 +224,7 @@ def generate_html(results, roundname, generated_at, accuracy):
     {disagree_note}
 
     <div class="footer">
-      Model: XGBoost · Trained on AFL {START_YEAR}–{END_YEAR} via
+      Model: XGBoost win + margin models, stacked · Trained on AFL {START_YEAR}–{END_YEAR} via
       <a href="https://api.squiggle.com.au">Squiggle API</a> ·
       Features: form, margin, days rest, ladder, H2H, venue, Elo rating, tipster consensus, team stats (afltables) ·
       <a href="https://github.com/forbesl1/afl-predictor">Source on GitHub</a>
@@ -256,13 +256,12 @@ def run():
     stats_lookup = build_stats_lookup(START_YEAR, END_YEAR)
     print(f"  Team-game stat entries: {len(stats_lookup)}")
 
-    print("\n[4/5] Building training features + training model...")
+    print("\n[4/5] Building training features + training models...")
     elo_lookup, current_elo = compute_elo(df)
     feat_df = build_training_features(df, tips_lookup=tips_lookup, elo_lookup=elo_lookup, stats_lookup=stats_lookup)
     print(f"  Feature rows: {len(feat_df)}")
-    model, accuracy = train(feat_df)
-    margin_model = train_margin(feat_df)
-    print(f"  Margin model trained.")
+    model, margin_model, stacker, accuracy = train_ensemble(feat_df)
+    print("  Win model, margin model and stacker trained.")
 
     print("\n[5/5] Predicting next round (2026)...")
     upcoming = fetch_upcoming()
@@ -279,7 +278,7 @@ def run():
         upcoming_lookup = _build_tips_lookup(upcoming_tips)
         print(f"  Tipster picks available: {len(upcoming_lookup)}/{len(games)} games")
         pred_df = build_prediction_features(df, games, tips_lookup=upcoming_lookup, current_elo=current_elo, stats_lookup=stats_lookup)
-        results = predict(pred_df, model, margin_model=margin_model)
+        results = predict(pred_df, model, margin_model=margin_model, stacker=stacker)
 
     os.makedirs(DOCS_DIR, exist_ok=True)
     out_path = os.path.join(DOCS_DIR, "index.html")

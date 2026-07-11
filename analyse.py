@@ -29,7 +29,7 @@ from xgboost import XGBClassifier, XGBRegressor
 from fetch_data import fetch_training_games, fetch_all_tips
 from features import FEATURE_COLS, build_training_features, compute_elo, to_df
 from pipeline import START_YEAR, END_YEAR, _build_tips_lookup
-from train import XGB_BASE, train, train_margin
+from train import XGB_BASE, train, stacked_oof_probs
 from afl_tables import build_stats_lookup
 
 ANALYSIS_DIR = "analysis"
@@ -187,16 +187,17 @@ def plot_margin_scatter(y_margin_true, y_margin_pred, out_dir):
 
 # ── summary ───────────────────────────────────────────────────────────────────
 
-def print_summary(y_true, y_prob_oof, cv_scores, y_margin_true, y_margin_pred):
-    acc  = ((y_prob_oof >= 0.5).astype(int) == y_true).mean()
-    auc  = roc_auc_score(y_true, y_prob_oof)
-    mae  = mean_absolute_error(y_margin_true, y_margin_pred)
+def print_summary(y_true, y_prob_oof, y_stack_oof, cv_scores, y_margin_true, y_margin_pred):
+    clf_acc = ((y_prob_oof >= 0.5).astype(int) == y_true).mean()
+    acc     = ((y_stack_oof >= 0.5).astype(int) == y_true).mean()
+    auc     = roc_auc_score(y_true, y_stack_oof)
+    mae     = mean_absolute_error(y_margin_true, y_margin_pred)
 
     print("\n=== Model Performance Summary ===\n")
-    print(f"  Win classifier ({CV_FOLDS}-fold OOF):")
-    print(f"    Accuracy  : {acc:.1%}")
+    print(f"  Stacked ensemble ({CV_FOLDS}-fold OOF) — the published probability:")
+    print(f"    Accuracy  : {acc:.1%}   (classifier alone: {clf_acc:.1%})")
     print(f"    AUC       : {auc:.3f}")
-    print(f"\n  Per-fold accuracy:")
+    print(f"\n  Per-fold accuracy (classifier alone):")
     for i, s in enumerate(cv_scores, 1):
         print(f"    Fold {i}: {s:.1%}")
     print(f"    Mean ± SD : {cv_scores.mean():.1%} ± {cv_scores.std():.1%}")
@@ -238,17 +239,19 @@ def run():
     cv_scores    = cross_val_score(XGBClassifier(**XGB_BASE, eval_metric="logloss"),
                                    X, y, cv=cv, scoring="accuracy")
     y_margin_oof = _oof_margin_preds(X, y_margin, cv)
+    # Stacked ensemble probability — what the pipeline actually publishes
+    y_stack_oof  = stacked_oof_probs(y_prob_oof, y_margin_oof, y, cv=cv)
 
     print("\n[4/4] Training final model + generating plots...")
     model, _ = train(feat_df)
 
-    print_summary(y, y_prob_oof, cv_scores, y_margin, y_margin_oof)
+    print_summary(y, y_prob_oof, y_stack_oof, cv_scores, y_margin, y_margin_oof)
 
     print("Saving plots...")
     plot_feature_importance(model, ANALYSIS_DIR)
-    plot_calibration(y, y_prob_oof, ANALYSIS_DIR)
-    plot_season_accuracy(y, y_prob_oof, years, ANALYSIS_DIR)
-    plot_confidence_tiers(y, y_prob_oof, ANALYSIS_DIR)
+    plot_calibration(y, y_stack_oof, ANALYSIS_DIR)
+    plot_season_accuracy(y, y_stack_oof, years, ANALYSIS_DIR)
+    plot_confidence_tiers(y, y_stack_oof, ANALYSIS_DIR)
     plot_margin_scatter(y_margin, y_margin_oof, ANALYSIS_DIR)
 
     print(f"\nDone. All plots saved to {ANALYSIS_DIR}/")
