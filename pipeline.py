@@ -195,7 +195,7 @@ def generate_html(results, roundname, generated_at, accuracy):
     <div class="footer">
       Model: XGBoost · Trained on AFL {START_YEAR}–{END_YEAR} via
       <a href="https://api.squiggle.com.au">Squiggle API</a> ·
-      Features: form, margin, days rest, ladder, H2H, venue, Elo rating, tipster consensus ·
+      Features: form, margin, days rest, ladder, H2H, venue, Elo rating, tipster consensus, team stats (afltables) ·
       <a href="https://github.com/forbesl1/afl-predictor">Source on GitHub</a>
     </div>
   </div>

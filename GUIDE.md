@@ -93,7 +93,7 @@ Downloads tipster picks for 2015–2025. Squiggle aggregates picks from ~30 regi
 Scrapes per-game team statistics from afltables.com for 2015–2025. Builds a lookup dict keyed by `(team, year, round)`. Completed seasons are cached; individual game pages are also cached so interrupted scrapes resume. See the afltables data source section above for full details.
 
 ### Step 4 — Build features + train models
-For every completed game in the training set, computes 34 features using only data available *before* that game (no data leakage). Then trains two XGBoost models on the resulting feature matrix: a classifier for win probability and a regressor for predicted point margin. See the Features and Models sections below.
+For every completed game in the training set, computes 31 features using only data available *before* that game (no data leakage). Then trains two XGBoost models on the resulting feature matrix: a classifier for win probability and a regressor for predicted point margin. See the Features and Models sections below.
 
 ### Step 5 — Predict next round
 Fetches incomplete games for 2026, filters to the next incomplete round, computes features using all 2015–2025 history as context, and applies the trained model to generate win probabilities. Writes `docs/index.html`.
@@ -102,7 +102,7 @@ Fetches incomplete games for 2026, filters to the next incomplete round, compute
 
 ## Features
 
-All 34 features are computed in `features.py`. They fall into six categories:
+All 31 features are computed in `features.py` (`FEATURE_COLS` is the source of truth). They fall into eight categories:
 
 ### Form (recent results)
 
@@ -138,11 +138,11 @@ AFL scheduling creates meaningful rest asymmetries. Under the Collective Bargain
 
 | Feature | Description |
 |---------|-------------|
-| `home_ladder_pct` | Home team's season win percentage up to this game |
-| `away_ladder_pct` | Away team's season win percentage up to this game |
+| `home_ladder_pct` | Home team's win percentage across all games before this one (full training window, not season-scoped) |
+| `away_ladder_pct` | Away team's win percentage across all games before this one (full training window, not season-scoped) |
 | `ladder_diff` | `home_ladder_pct - away_ladder_pct` |
 
-Rather than actual ladder rank (which requires knowing all teams' records simultaneously), this uses each team's own win percentage — a clean, leakage-free proxy for season standing.
+Rather than actual ladder rank (which requires knowing all teams' records simultaneously), this uses each team's own cumulative win percentage — a clean, leakage-free proxy for standing. Note it is computed over the team's *entire* history in the training window (2015 onward), not reset each season — despite the "ladder" name, it measures long-run team quality.
 
 ### Head-to-head and venue
 
@@ -218,7 +218,7 @@ Rolling averages use the same `FORM_N = 5` window as form features. Stats are lo
 
 ## Models
 
-The pipeline trains two XGBoost models on every run, both using the same 34-feature matrix.
+The pipeline trains two XGBoost models on every run, both using the same 31-feature matrix.
 
 ### Classifier — win probability (`XGBClassifier`)
 
@@ -351,31 +351,6 @@ Pre-current-year seasons are cached indefinitely; the current season is never ca
 
 ---
 
-## Future Improvements
+## Ideas and decisions
 
-### High impact
-
-**Player availability / injury lists**
-The single biggest missing signal. If a team's key forward is ruled out Thursday afternoon, the model doesn't know. Possible implementation: scrape AFL.com.au or Footywire for the final selected 22, compare against a "baseline" squad using historical fantasy score averages as a proxy for player value. This requires a headless browser (Playwright) since AFL.com.au is a JavaScript-rendered app, or a Footywire scraper.
-
-**Hyperparameter tuning**
-Run `optuna` or `sklearn GridSearchCV` over `n_estimators`, `max_depth`, `learning_rate`, `subsample`. This is currently skipped for simplicity but could improve CV accuracy by 1–2%.
-
-### Medium impact
-
-**Extend Elo back further**
-Start Elo computation from 2000 or earlier (Squiggle has data from 1897) to allow ratings to fully converge before the training window. Currently the 2015 ratings start at 1500 and may take 2–3 seasons to reflect true team quality.
-
-**Venue-specific Elo**
-Some teams are dramatically stronger at their home ground (MCG teams, GMHBA Stadium). A separate "venue Elo" component — distinct from overall Elo — would capture this more precisely than the `home_venue` win-rate feature.
-
-### Lower impact / longer term
-
-**Email notifications**
-Add `notify.py` using Gmail SMTP + App Password to send the HTML output as an email each Thursday. Avoids needing to visit the GitHub Pages URL manually.
-
-**Multi-season Elo reset tuning**
-The current season regression factor (30%) is a common default. Empirical tuning against held-out seasons could find a better value for AFL specifically.
-
-**Injury impact score**
-Rather than binary availability, weight player absence by their contribution: `impact = sum(fantasy_avg of absent players) / sum(fantasy_avg of full squad)`. A 0.15 absence rate for a star player is very different from a 0.15 rate for a depth player.
+Decision records live in `docs/decisions/`. Ideas and future improvements are tracked privately outside this repo — see `CLAUDE.md` for filing rules.

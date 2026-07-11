@@ -1,22 +1,19 @@
 """
 features.py — converts raw game data into a feature matrix for modelling.
 
-Features computed for each game:
-  home_form        — home team win rate in last 5 games
-  away_form        — away team win rate in last 5 games
-  form_diff        — home_form - away_form
-  h2h              — home team win rate vs this specific away team (all history)
-  home_venue       — home team win rate at this venue (all history)
-  home_avg_margin  — home team average score margin in last 5 games (signed)
-  away_avg_margin  — away team average score margin in last 5 games (signed)
-  margin_diff      — home_avg_margin - away_avg_margin
-  home_days_rest   — days since home team's last game
-  away_days_rest   — days since away team's last game
-  rest_diff        — home_days_rest - away_days_rest
-  home_ladder_pct  — home team season win % up to this game
-  away_ladder_pct  — away team season win % up to this game
-  ladder_diff      — home_ladder_pct - away_ladder_pct
-  tipster_consensus — fraction of Squiggle tipsters backing home team (0.5 if unavailable)
+31 features (see FEATURE_COLS), in eight groups:
+  Form           — home_form, away_form, form_diff (win rate, last 5 games)
+  Scoring margin — home_avg_margin, away_avg_margin, margin_diff (signed, last 5 games)
+  Rest           — home_days_rest, away_days_rest, rest_diff
+  Ladder         — home_ladder_pct, away_ladder_pct, ladder_diff
+                   (win % over all prior games in the window, not season-scoped)
+  H2H / venue    — h2h, home_venue (historical win rates)
+  Tipsters       — tipster_consensus (fraction of Squiggle tipsters backing home; 0.5 default)
+  Elo            — home_elo, away_elo, elo_diff, elo_win_prob
+  Team stats     — {home,away}_{I50,CL,D,T}_avg + diffs: rolling 5-game averages
+                   from afltables (NaN when unavailable; XGBoost handles natively)
+
+Every feature uses only data available before the game's date (no leakage).
 """
 import numpy as np
 import pandas as pd
