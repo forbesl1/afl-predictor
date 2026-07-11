@@ -23,7 +23,7 @@ venv setup: `C:\Users\Lach\miniconda3\python.exe -m venv .venv`, then `.venv\Scr
 
 ## Definition of done (every change)
 
-1. `python pipeline.py` runs end-to-end without errors if code was touched (this also regenerates `docs/index.html`).
+1. `python pipeline.py` runs end-to-end without errors if code was touched. This regenerates `docs/index.html` — **discard that change** (`git checkout -- docs/index.html`) rather than committing it; the file is bot-owned.
 2. One-line entry in the dashboard Log (`../notes/projects/afl_predictor.md`) — detail belongs in GUIDE.md, not the log.
 3. GUIDE.md updated if behaviour, features, data sources, or automation changed (keep the feature count exact).
 4. Decision record in `docs/decisions/` if a real either/or choice was made; new ideas go to the private notes repo (see filing rules).
@@ -33,6 +33,7 @@ venv setup: `C:\Users\Lach\miniconda3\python.exe -m venv .venv`, then `.venv\Scr
 
 - **Everything under `docs/` is published** — it is the GitHub Pages root. Never put private material there.
 - The Actions bot pushes `Update predictions YYYY-MM-DD` to `master` weekly (Thu 4am UTC / 2pm AEST); pull before pushing or you'll create merge commits.
+- **Never commit a locally generated `docs/index.html`.** Git can silently mis-merge the generated HTML with the bot's version — no conflict reported, corrupt table on the live site (happened 2026-07-10; see `docs/decisions/generated_html_bot_owned.md`).
 - The model has **31 features** — `FEATURE_COLS` in `features.py` is the source of truth; update GUIDE.md and the dashboard if it changes.
 - Squiggle API: semicolons in query params must NOT be URL-encoded — URLs are built manually in `fetch_data.py`. A descriptive User-Agent is required.
 - `.cache/` is git-ignored locally but persisted on GitHub Actions via `actions/cache` (key prefix `afltables-`); the current season is never cached.
