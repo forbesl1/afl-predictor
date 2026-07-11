@@ -267,8 +267,9 @@ Both models are retrained from scratch on every pipeline run, ensuring they inco
 The pipeline writes `docs/index.html` — a self-contained HTML page with inline CSS. It shows:
 - Round name and generation timestamp (Melbourne time)
 - Summary badges: games count, confidence breakdown, model CV accuracy
-- Predictions table sorted by confidence (highest first), with:
+- Predictions table sorted chronologically by kick-off (earliest first), with:
   - Predicted winner **bolded** in each matchup row
+  - Kick-off day and time (e.g. "Thu 7:30 PM", AEST/AEDT from Squiggle's `date` field)
   - Predicted winning margin (e.g. "+18 pts") from the regressor
   - Colour-coded confidence pills (green / yellow / red)
 

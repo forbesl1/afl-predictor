@@ -71,15 +71,30 @@ def _format_dt(dt):
     return dt.strftime(f"%A {day} %B %Y, {hour}:%M {ampm}")
 
 
+def _format_game_time(date_str):
+    """
+    Short kick-off time from Squiggle's `date` field, e.g. "Thu 7:30 PM".
+    Squiggle's `date` is AEST/AEDT (venue-local time is in `localtime`).
+    """
+    try:
+        dt = datetime.datetime.strptime(str(date_str), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return ""
+    hour = dt.hour % 12 or 12
+    ampm = "AM" if dt.hour < 12 else "PM"
+    return dt.strftime(f"%a {hour}:%M {ampm}")
+
+
 # ── HTML generation ───────────────────────────────────────────────────────────
 
 def _game_rows_html(results):
     if results.empty:
-        return '<tr><td colspan="7" style="text-align:center;color:#888;padding:32px 16px">No upcoming games found.</td></tr>'
+        return '<tr><td colspan="8" style="text-align:center;color:#888;padding:32px 16px">No upcoming games found.</td></tr>'
 
     has_margin = "predicted_margin" in results.columns
     rows = ""
-    for _, r in results.sort_values("confidence", ascending=False).iterrows():
+    # Squiggle date strings ("YYYY-MM-DD HH:MM:SS") sort chronologically as text
+    for _, r in results.sort_values("date").iterrows():
         cc   = _confidence_class(r["confidence"])
         home_bold = r["predicted_winner"] == r["home_team"]
         h_style = "font-weight:700;color:#002B5C;" if home_bold else "color:#444;"
@@ -91,6 +106,7 @@ def _game_rows_html(results):
       <td class="vs">vs</td>
       <td style="{a_style}">{r['away_team']}</td>
       <td class="venue">{r['venue']}</td>
+      <td class="when">{_format_game_time(r['date'])}</td>
       <td class="winner">{r['predicted_winner']}</td>
       {margin_td}
       <td class="conf {cc}">{r['confidence']:.0%}</td>
@@ -149,6 +165,7 @@ def generate_html(results, roundname, generated_at, accuracy):
 
     .vs     {{ color: #bbb; font-size: 0.82em; width: 28px; text-align: center; padding: 0; }}
     .venue  {{ color: #888; font-size: 0.82em; }}
+    .when   {{ color: #888; font-size: 0.82em; white-space: nowrap; }}
     .winner {{ font-weight: 600; color: #0055A5; }}
     .margin {{ color: #555; font-size: 0.82em; font-style: italic; }}
     .conf   {{ font-weight: 700; border-radius: 20px; padding: 4px 10px; font-size: 0.82em; text-align: center; width: 70px; }}
@@ -183,7 +200,7 @@ def generate_html(results, roundname, generated_at, accuracy):
     <table>
       <thead>
         <tr>
-          <th>Home</th><th></th><th>Away</th><th>Venue</th>
+          <th>Home</th><th></th><th>Away</th><th>Venue</th><th>When</th>
           <th>Predicted Winner</th>{margin_th}<th>Confidence</th>
         </tr>
       </thead>
@@ -259,9 +276,10 @@ def run():
     print(f"\nDone. Output: {out_path}")
     if not results.empty:
         print("\nPredictions summary:")
-        for _, r in results.sort_values("confidence", ascending=False).iterrows():
+        for _, r in results.sort_values("date").iterrows():
             margin_str = f"  +{r['predicted_margin']}pts" if "predicted_margin" in r else ""
-            print(f"  {r['predicted_winner']:25s} ({r['confidence']:.0%}){margin_str}  —  {r['home_team']} vs {r['away_team']}")
+            when = _format_game_time(r["date"])
+            print(f"  {when:12s} {r['predicted_winner']:25s} ({r['confidence']:.0%}){margin_str}  —  {r['home_team']} vs {r['away_team']}")
 
 
 if __name__ == "__main__":
