@@ -40,6 +40,8 @@
     .when   { color: #888; font-size: 0.82em; white-space: nowrap; }
     .winner { font-weight: 600; color: #0055A5; }
     .margin { color: #555; font-size: 0.82em; font-style: italic; }
+    .margin.disagree { color: #c0392b; }
+    .tablenote { color: #999; font-size: 0.78em; margin-top: 10px; font-style: italic; }
     .conf   { font-weight: 700; border-radius: 20px; padding: 4px 10px; font-size: 0.82em; text-align: center; width: 70px; }
     .conf.high { background: #e6f4ea; color: #1e7e34; }
     .conf.med  { background: #fff3cd; color: #856404; }
@@ -52,15 +54,15 @@
 <body>
   <div class="header">
     <h1>AFL Predictions</h1>
-    <div class="sub">Round 18 &nbsp;·&nbsp; Generated Saturday 11 July 2026, 2:45 PM</div>
+    <div class="sub">Round 18 &nbsp;·&nbsp; Generated Saturday 11 July 2026, 5:47 PM</div>
   </div>
 
   <div class="container">
     <div class="badges">
-      <div class="badge"><div class="val">6</div><div class="lbl">Games this round</div></div>
+      <div class="badge"><div class="val">5</div><div class="lbl">Games this round</div></div>
       <div class="badge"><div class="val">4</div><div class="lbl">High confidence</div></div>
-      <div class="badge"><div class="val">1</div><div class="lbl">Medium confidence</div></div>
-      <div class="badge"><div class="val">64%</div><div class="lbl">Model accuracy (CV)</div></div>
+      <div class="badge"><div class="val">0</div><div class="lbl">Medium confidence</div></div>
+      <div class="badge"><div class="val">65%</div><div class="lbl">Model accuracy (CV)</div></div>
     </div>
 
     <div class="legend">
@@ -79,16 +81,6 @@
       <tbody>
         
     <tr>
-      <td style="font-weight:700;color:#002B5C;">Greater Western Sydney</td>
-      <td class="vs">vs</td>
-      <td style="color:#444;">Geelong</td>
-      <td class="venue">Sydney Showground</td>
-      <td class="when">Sat 4:15 PM</td>
-      <td class="winner">Greater Western Sydney</td>
-      <td class="margin">+8 pts</td>
-      <td class="conf med">61%</td>
-    </tr>
-    <tr>
       <td style="color:#444;">Carlton</td>
       <td class="vs">vs</td>
       <td style="font-weight:700;color:#002B5C;">Hawthorn</td>
@@ -106,7 +98,7 @@
       <td class="when">Sat 8:10 PM</td>
       <td class="winner">Adelaide</td>
       <td class="margin">+24 pts</td>
-      <td class="conf high">83%</td>
+      <td class="conf high">73%</td>
     </tr>
     <tr>
       <td style="font-weight:700;color:#002B5C;">Western Bulldogs</td>
@@ -116,7 +108,7 @@
       <td class="when">Sun 1:10 PM</td>
       <td class="winner">Western Bulldogs</td>
       <td class="margin">+62 pts</td>
-      <td class="conf high">98%</td>
+      <td class="conf high">91%</td>
     </tr>
     <tr>
       <td style="font-weight:700;color:#002B5C;">Melbourne</td>
@@ -126,7 +118,7 @@
       <td class="when">Sun 3:15 PM</td>
       <td class="winner">Melbourne</td>
       <td class="margin">+31 pts</td>
-      <td class="conf high">87%</td>
+      <td class="conf high">78%</td>
     </tr>
     <tr>
       <td style="font-weight:700;color:#002B5C;">Brisbane Lions</td>
@@ -136,13 +128,14 @@
       <td class="when">Sun 4:40 PM</td>
       <td class="winner">Brisbane Lions</td>
       <td class="margin">+29 pts</td>
-      <td class="conf high">94%</td>
+      <td class="conf high">77%</td>
     </tr>
       </tbody>
     </table>
+    
 
     <div class="footer">
-      Model: XGBoost · Trained on AFL 2015–2025 via
+      Model: XGBoost win + margin models, stacked · Trained on AFL 2015–2025 via
       <a href="https://api.squiggle.com.au">Squiggle API</a> ·
       Features: form, margin, days rest, ladder, H2H, venue, Elo rating, tipster consensus, team stats (afltables) ·
       <a href="https://github.com/forbesl1/afl-predictor">Source on GitHub</a>
