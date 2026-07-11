@@ -99,7 +99,14 @@ def _game_rows_html(results):
         home_bold = r["predicted_winner"] == r["home_team"]
         h_style = "font-weight:700;color:#002B5C;" if home_bold else "color:#444;"
         a_style = "font-weight:700;color:#002B5C;" if not home_bold else "color:#444;"
-        margin_td = f'<td class="margin">+{r["predicted_margin"]} pts</td>' if has_margin else ""
+        if not has_margin:
+            margin_td = ""
+        elif r["margin_team"] == r["predicted_winner"]:
+            margin_td = f'<td class="margin">+{r["predicted_margin"]} pts</td>'
+        else:
+            # Margin model favours the other team — name it, don't imply the
+            # margin belongs to the predicted winner
+            margin_td = f'<td class="margin disagree">{r["margin_team"]} +{r["predicted_margin"]}&#8224;</td>'
         rows += f"""
     <tr>
       <td style="{h_style}">{r['home_team']}</td>
@@ -125,6 +132,10 @@ def generate_html(results, roundname, generated_at, accuracy):
     total_games = len(results)
     date_str    = _format_dt(generated_at)
     margin_th   = "<th>Margin</th>" if has_margin else ""
+    disagree_note = ""
+    if has_margin and (results["margin_team"] != results["predicted_winner"]).any():
+        disagree_note = ('<div class="tablenote">&#8224; The margin model favours this team even though '
+                         'the win model predicts the other side &mdash; treat the game as genuinely close.</div>')
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -168,6 +179,8 @@ def generate_html(results, roundname, generated_at, accuracy):
     .when   {{ color: #888; font-size: 0.82em; white-space: nowrap; }}
     .winner {{ font-weight: 600; color: #0055A5; }}
     .margin {{ color: #555; font-size: 0.82em; font-style: italic; }}
+    .margin.disagree {{ color: #c0392b; }}
+    .tablenote {{ color: #999; font-size: 0.78em; margin-top: 10px; font-style: italic; }}
     .conf   {{ font-weight: 700; border-radius: 20px; padding: 4px 10px; font-size: 0.82em; text-align: center; width: 70px; }}
     .conf.high {{ background: #e6f4ea; color: #1e7e34; }}
     .conf.med  {{ background: #fff3cd; color: #856404; }}
@@ -208,6 +221,7 @@ def generate_html(results, roundname, generated_at, accuracy):
         {game_rows}
       </tbody>
     </table>
+    {disagree_note}
 
     <div class="footer">
       Model: XGBoost · Trained on AFL {START_YEAR}–{END_YEAR} via
@@ -277,7 +291,12 @@ def run():
     if not results.empty:
         print("\nPredictions summary:")
         for _, r in results.sort_values("date").iterrows():
-            margin_str = f"  +{r['predicted_margin']}pts" if "predicted_margin" in r else ""
+            if "predicted_margin" not in r:
+                margin_str = ""
+            elif r["margin_team"] == r["predicted_winner"]:
+                margin_str = f"  +{r['predicted_margin']}pts"
+            else:
+                margin_str = f"  (margin model: {r['margin_team']} +{r['predicted_margin']})"
             when = _format_game_time(r["date"])
             print(f"  {when:12s} {r['predicted_winner']:25s} ({r['confidence']:.0%}){margin_str}  —  {r['home_team']} vs {r['away_team']}")
 

@@ -35,7 +35,13 @@ def predict(pred_df, model, margin_model=None):
         raw_margin = margin_model.predict(X)
         # raw_home_margin: positive = home team winning, negative = away team winning
         out["raw_home_margin"] = np.round(raw_margin).astype(int)
-        # predicted_margin: always positive, from the predicted winner's perspective
+        # predicted_margin: magnitude of the regressor's margin
         out["predicted_margin"] = out["raw_home_margin"].abs()
+        # margin_team: who the margin model favours. Disagrees with predicted_winner
+        # (the classifier's pick) in ~15% of games (OOF) — display must say whose
+        # margin this is rather than implying it belongs to the predicted winner.
+        out["margin_team"] = np.where(
+            out["raw_home_margin"] >= 0, out["home_team"], out["away_team"]
+        )
 
     return out

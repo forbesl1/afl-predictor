@@ -256,7 +256,7 @@ Confidence thresholds:
 
 Predicts the home team's final point margin (`hscore - ascore`). A positive value means the home team wins; negative means the away team wins. The same 34 features and hyperparameters are used (minus `eval_metric`, which is not applicable to regression).
 
-The predicted margin is displayed in the output table from the predicted winner's perspective (always shown as a positive number, e.g. "+18 pts"). This gives a richer picture than win probability alone — a predicted 40-point win is more convincing than a 2-point win at the same confidence level.
+The margin is displayed in the output table as "+18 pts" when the margin model agrees with the classifier's predicted winner. The two models disagree on the winner in ~15% of games (OOF), and neither is reliably right in those cases (classifier 48.5% vs regressor 51.5%), so when they disagree the margin cell instead names the team the margin model favours (e.g. "Carlton +4†") with a footnote — the margin is never silently attributed to the predicted winner. See `docs/decisions/margin_disagreement_display.md`.
 
 Both models are retrained from scratch on every pipeline run, ensuring they incorporate the most recent results automatically.
 
@@ -270,7 +270,7 @@ The pipeline writes `docs/index.html` — a self-contained HTML page with inline
 - Predictions table sorted chronologically by kick-off (earliest first), with:
   - Predicted winner **bolded** in each matchup row
   - Kick-off day and time (e.g. "Thu 7:30 PM", AEST/AEDT from Squiggle's `date` field)
-  - Predicted winning margin (e.g. "+18 pts") from the regressor
+  - Predicted margin from the regressor (e.g. "+18 pts"; when the margin model favours the other team, the cell names that team instead, e.g. "Carlton +4†")
   - Colour-coded confidence pills (green / yellow / red)
 
 GitHub Pages is configured to serve from the `docs/` folder on the `master` branch. The GitHub Actions workflow commits the updated `docs/index.html` after each run, which triggers an automatic Pages redeploy.
