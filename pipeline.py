@@ -18,7 +18,9 @@ from train import train_ensemble
 from afl_tables import build_stats_lookup
 
 START_YEAR = 2015
-END_YEAR   = 2025   # train on completed seasons; 2026 games are predicted
+# Train on completed seasons only; the current year is predicted. Computed
+# dynamically so the training window grows each season without maintenance.
+END_YEAR   = datetime.date.today().year - 1
 DOCS_DIR   = "docs"
 
 
@@ -121,6 +123,15 @@ def _game_rows_html(results):
     return rows
 
 
+def _already_offseason():
+    """True if the published page is already the off-season placeholder."""
+    path = os.path.join(DOCS_DIR, "index.html")
+    if not os.path.exists(path):
+        return False
+    with open(path, encoding="utf-8") as f:
+        return "Off Season" in f.read()
+
+
 def generate_html(results, roundname, generated_at, accuracy):
     conf_counts = {"high": 0, "med": 0, "low": 0}
     if not results.empty:
@@ -132,6 +143,7 @@ def generate_html(results, roundname, generated_at, accuracy):
     total_games = len(results)
     date_str    = _format_dt(generated_at)
     margin_th   = "<th>Margin</th>" if has_margin else ""
+    acc_str     = f"{accuracy:.0%}" if accuracy is not None else "&ndash;"
     disagree_note = ""
     if has_margin and (results["margin_team"] != results["predicted_winner"]).any():
         disagree_note = ('<div class="tablenote">&#8224; The margin model favours this team even though '
@@ -201,7 +213,7 @@ def generate_html(results, roundname, generated_at, accuracy):
       <div class="badge"><div class="val">{total_games}</div><div class="lbl">Games this round</div></div>
       <div class="badge"><div class="val">{conf_counts['high']}</div><div class="lbl">High confidence</div></div>
       <div class="badge"><div class="val">{conf_counts['med']}</div><div class="lbl">Medium confidence</div></div>
-      <div class="badge"><div class="val">{accuracy:.0%}</div><div class="lbl">Model accuracy (CV)</div></div>
+      <div class="badge"><div class="val">{acc_str}</div><div class="lbl">Model accuracy (CV)</div></div>
     </div>
 
     <div class="legend">
@@ -239,46 +251,57 @@ def generate_html(results, roundname, generated_at, accuracy):
 def run():
     print("=== AFL Predictor Pipeline ===\n")
 
-    print(f"[1/5] Fetching training data ({START_YEAR}–{END_YEAR})...")
+    current_year = datetime.date.today().year
+    print(f"[1/6] Checking for upcoming games ({current_year})...")
+    upcoming = fetch_upcoming()
+    games, round_num, roundname = _next_round_games(upcoming)
+
+    if not games:
+        # Off-season: skip all fetching and training. Only write the placeholder
+        # page if it isn't already published, so repeat runs commit nothing.
+        if _already_offseason():
+            print("  No upcoming games; off-season page already published. Nothing to do.")
+            return
+        print("  No upcoming games — writing off-season page.")
+        os.makedirs(DOCS_DIR, exist_ok=True)
+        out_path = os.path.join(DOCS_DIR, "index.html")
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(generate_html(pd.DataFrame(), "Off Season", datetime.datetime.now(), None))
+        print(f"\nDone. Output: {out_path}")
+        return
+
+    print(f"  {roundname}: {len(games)} games")
+
+    print(f"\n[2/6] Fetching training data ({START_YEAR}–{END_YEAR})...")
     raw = fetch_training_games(START_YEAR, END_YEAR)
     print(f"  Total raw games: {len(raw)}")
 
-    print("\n[2/5] Processing completed games...")
+    print("\n[3/6] Processing completed games...")
     df = to_df(raw)
     print(f"  Completed games: {len(df)}")
 
-    print("\n[3/5] Fetching tipster data...")
+    print("\n[4/6] Fetching tipster data...")
     all_tips    = fetch_all_tips(START_YEAR, END_YEAR)
     tips_lookup = _build_tips_lookup(all_tips)
     print(f"  Tips indexed: {len(tips_lookup)} games")
 
-    print("\n[3b] Fetching team stats from afltables...")
+    print("\n[4b] Fetching team stats from afltables...")
     stats_lookup = build_stats_lookup(START_YEAR, END_YEAR)
     print(f"  Team-game stat entries: {len(stats_lookup)}")
 
-    print("\n[4/5] Building training features + training models...")
+    print("\n[5/6] Building training features + training models...")
     elo_lookup, current_elo = compute_elo(df)
     feat_df = build_training_features(df, tips_lookup=tips_lookup, elo_lookup=elo_lookup, stats_lookup=stats_lookup)
     print(f"  Feature rows: {len(feat_df)}")
     model, margin_model, stacker, accuracy = train_ensemble(feat_df)
     print("  Win model, margin model and stacker trained.")
 
-    print("\n[5/5] Predicting next round (2026)...")
-    upcoming = fetch_upcoming()
-    games, round_num, roundname = _next_round_games(upcoming)
-
-    if not games:
-        print("  No upcoming games found — writing off-season page.")
-        roundname = "Off Season"
-        results   = pd.DataFrame()
-    else:
-        print(f"  {roundname}: {len(games)} games")
-        current_year    = datetime.date.today().year
-        upcoming_tips   = fetch_upcoming_tips(current_year, round_num) if round_num else []
-        upcoming_lookup = _build_tips_lookup(upcoming_tips)
-        print(f"  Tipster picks available: {len(upcoming_lookup)}/{len(games)} games")
-        pred_df = build_prediction_features(df, games, tips_lookup=upcoming_lookup, current_elo=current_elo, stats_lookup=stats_lookup)
-        results = predict(pred_df, model, margin_model=margin_model, stacker=stacker)
+    print(f"\n[6/6] Predicting {roundname}...")
+    upcoming_tips   = fetch_upcoming_tips(current_year, round_num) if round_num else []
+    upcoming_lookup = _build_tips_lookup(upcoming_tips)
+    print(f"  Tipster picks available: {len(upcoming_lookup)}/{len(games)} games")
+    pred_df = build_prediction_features(df, games, tips_lookup=upcoming_lookup, current_elo=current_elo, stats_lookup=stats_lookup)
+    results = predict(pred_df, model, margin_model=margin_model, stacker=stacker)
 
     os.makedirs(DOCS_DIR, exist_ok=True)
     out_path = os.path.join(DOCS_DIR, "index.html")

@@ -2,7 +2,7 @@
 
 ## Overview
 
-AFL Predictor is a fully automated machine learning pipeline that fetches Australian Rules Football data, trains a predictive model, and publishes weekly win/loss predictions to a public webpage. It runs on a GitHub Actions cron schedule every Thursday morning (AEST), publishing predictions before the first game of each round.
+AFL Predictor is a fully automated machine learning pipeline that fetches Australian Rules Football data, trains a predictive model, and publishes weekly win/loss predictions to a public webpage. It runs on a GitHub Actions cron schedule every Thursday morning (AEST) during the AFL season (March–October), publishing predictions before the first game of each round. Off-season runs exit early and publish nothing new.
 
 **Live predictions:** https://forbesl1.github.io/afl-predictor/
 
@@ -47,7 +47,7 @@ Free, no authentication required. Three endpoints are used:
 
 **User-Agent:** The API requires a descriptive User-Agent header. The pipeline sends `afl-predictor/1.0 (github.com/forbesl1/afl-predictor)`. Note: semicolons in query parameters must be passed as raw characters — the `requests` library URL-encodes them by default, which the API rejects. The URL is manually constructed to avoid this.
 
-**Training range:** 2015–2025 (2,258 completed games). The current year (2026) is predicted.
+**Training range:** 2015 through the most recently completed season — `END_YEAR` is computed as the current year − 1, so the training window grows automatically each season with no maintenance. The current year is predicted. (As of 2026: 2015–2025, 2,258 completed games.)
 
 ### afltables.com
 
@@ -74,10 +74,13 @@ Per-game team statistics scraped from individual match pages. Used to compute ro
 
 Running `python pipeline.py` executes the following steps in order:
 
-### Step 1 — Fetch training data
-Downloads all completed games from 2015–2025 via Squiggle. Builds a flat list of ~2,258 game objects, each containing team names, scores, venue, date, and round.
+### Step 1 — Check for upcoming games
+Fetches incomplete games for the current year and selects the earliest incomplete round. **Off-season early exit:** if there are no upcoming games, the pipeline writes the "Off Season" placeholder page and stops — no data fetching, no training. If the placeholder is already published it writes nothing at all, so repeat off-season runs produce no commit.
 
-### Step 2 — Process games
+### Step 2 — Fetch training data
+Downloads all completed games in the training range via Squiggle. Builds a flat list of game objects, each containing team names, scores, venue, date, and round.
+
+### Step 3 — Process games
 Converts the raw game list to a cleaned pandas DataFrame:
 - Filters to `complete == 100` (finished games only)
 - Converts scores to numeric
@@ -85,18 +88,18 @@ Converts the raw game list to a cleaned pandas DataFrame:
 - Parses dates as timezone-aware UTC timestamps
 - Sorts chronologically
 
-### Step 3 — Fetch tipster data
-Downloads tipster picks for 2015–2025. Squiggle aggregates picks from ~30 registered prediction models. Tips are indexed by `gameid` into a lookup dict: `{game_id: home_consensus}` where `home_consensus` is the fraction of tipsters who predicted the home team to win (0.0–1.0). Data is available from 2017 onward; earlier games default to 0.5.
+### Step 4 — Fetch tipster data
+Downloads tipster picks for the training range. Squiggle aggregates picks from ~30 registered prediction models. Tips are indexed by `gameid` into a lookup dict: `{game_id: home_consensus}` where `home_consensus` is the fraction of tipsters who predicted the home team to win (0.0–1.0). Data is available from 2017 onward; earlier games default to 0.5.
 
-### Step 3b — Fetch team stats from afltables
+### Step 4b — Fetch team stats from afltables
 
-Scrapes per-game team statistics from afltables.com for 2015–2025. Builds a lookup dict keyed by `(team, year, round)`. Completed seasons are cached; individual game pages are also cached so interrupted scrapes resume. See the afltables data source section above for full details.
+Scrapes per-game team statistics from afltables.com for the training range. Builds a lookup dict keyed by `(team, year, round)`. Completed seasons are cached; individual game pages are also cached so interrupted scrapes resume. See the afltables data source section above for full details.
 
-### Step 4 — Build features + train models
-For every completed game in the training set, computes 31 features using only data available *before* that game (no data leakage). Then trains two XGBoost models on the resulting feature matrix: a classifier for win probability and a regressor for predicted point margin. See the Features and Models sections below.
+### Step 5 — Build features + train models
+For every completed game in the training set, computes 31 features using only data available *before* that game (no data leakage). Then trains the model stack on the resulting feature matrix: a classifier for win probability, a regressor for predicted point margin, and the logistic-regression stacker that blends them. See the Features and Models sections below.
 
-### Step 5 — Predict next round
-Fetches incomplete games for 2026, filters to the next incomplete round, computes features using all 2015–2025 history as context, and applies the trained model to generate win probabilities. Writes `docs/index.html`.
+### Step 6 — Predict next round
+Using the round found in Step 1, fetches that round's tipster picks, computes features using all training history as context, and applies the model stack to generate win probabilities. Writes `docs/index.html`.
 
 ---
 
@@ -294,9 +297,11 @@ GitHub Pages is configured to serve from the `docs/` folder on the `master` bran
 
 **File:** `.github/workflows/predict.yml`
 
-**Schedule:** `0 4 * * 4` — Thursday 4am UTC = Thursday 2pm AEST
+**Schedule:** `0 4 * 3-10 4` — Thursday 4am UTC = Thursday 2pm AEST, **March–October only**
 
-This timing is chosen to run after Squiggle tipsters have published their picks for the round (typically by Thursday midday) but before the first game (Thursday ~7:30pm AEST).
+The weekly timing is chosen to run after Squiggle tipsters have published their picks for the round (typically by Thursday midday) but before the first game (Thursday ~7:30pm AEST). The month range pauses the workflow over the off-season; October is included so the run after the Grand Final publishes the off-season placeholder page. Off-season runs exit early (no fetching or training) and commit nothing once the placeholder is up.
+
+**Off-season caveat:** GitHub automatically disables scheduled workflows after 60 days of repository inactivity, and a paused off-season provides no bot commits to keep it alive. GitHub emails a warning first; check the Actions tab each March and re-enable the workflow if needed (any push also resets the inactivity timer).
 
 **Also supports:** Manual trigger via the GitHub Actions tab → "Run workflow"
 

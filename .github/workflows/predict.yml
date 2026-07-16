@@ -1,9 +1,13 @@
 name: AFL Predictions
 
 on:
-  # Thursday 2pm AEST (= Thursday 4am UTC). Tipsters publish picks by midday.
+  # Thursday 2pm AEST (= Thursday 4am UTC), March-October only (AFL season +
+  # one spare month so the off-season page gets published after the Grand
+  # Final). Tipsters publish picks by midday.
+  # NOTE: GitHub disables scheduled workflows after 60 days of repo inactivity
+  # - check the Actions tab each March and re-enable if needed.
   schedule:
-    - cron: '0 4 * * 4'
+    - cron: '0 4 * 3-10 4'
   # Also allows manual trigger from the GitHub Actions tab
   workflow_dispatch:
 

@@ -32,7 +32,8 @@ venv setup: `C:\Users\Lach\miniconda3\python.exe -m venv .venv`, then `.venv\Scr
 ## Facts that prevent mistakes
 
 - **Everything under `docs/` is published** — it is the GitHub Pages root. Never put private material there.
-- The Actions bot pushes `Update predictions YYYY-MM-DD` to `master` weekly (Thu 4am UTC / 2pm AEST); pull before pushing or you'll create merge commits.
+- The Actions bot pushes `Update predictions YYYY-MM-DD` to `master` weekly (Thu 4am UTC / 2pm AEST), **March–October only** — the cron pauses over the off-season and the pipeline exits early when there are no upcoming games. Pull before pushing or you'll create merge commits.
+- **Each March: check the Actions tab.** GitHub disables scheduled workflows after 60 days of repo inactivity, and the paused off-season provides no commits to keep it alive — re-enable the workflow if it was disabled (see `docs/decisions/offseason_pause.md`).
 - **Never commit a locally generated `docs/index.html`.** Git can silently mis-merge the generated HTML with the bot's version — no conflict reported, corrupt table on the live site (happened 2026-07-10; see `docs/decisions/generated_html_bot_owned.md`).
 - The model has **31 features** — `FEATURE_COLS` in `features.py` is the source of truth; update GUIDE.md and the dashboard if it changes.
 - Squiggle API: semicolons in query params must NOT be URL-encoded — URLs are built manually in `fetch_data.py`. A descriptive User-Agent is required.
