@@ -11,7 +11,7 @@ import pandas as pd
 
 from collections import defaultdict
 
-from fetch_data import fetch_all_tips, fetch_training_games, fetch_upcoming, fetch_upcoming_tips
+from fetch_data import fetch_all_tips, fetch_season, fetch_training_games, fetch_upcoming, fetch_upcoming_tips
 from features import build_prediction_features, build_training_features, compute_elo, to_df
 from predict import predict
 from train import train_ensemble
@@ -278,7 +278,14 @@ def run():
 
     print("\n[3/6] Processing completed games...")
     df = to_df(raw)
-    print(f"  Completed games: {len(df)}")
+    print(f"  Completed games (training window): {len(df)}")
+
+    # Prediction context = training seasons + the current season's completed
+    # games, so form/rest/Elo/stats reflect the season being predicted. The
+    # model itself is only ever trained on df (completed seasons) — no leakage.
+    current_raw = fetch_season(current_year)
+    context_df  = to_df(raw + current_raw)
+    print(f"  Current-season completed games added to prediction context: {len(context_df) - len(df)}")
 
     print("\n[4/6] Fetching tipster data...")
     all_tips    = fetch_all_tips(START_YEAR, END_YEAR)
@@ -286,11 +293,14 @@ def run():
     print(f"  Tips indexed: {len(tips_lookup)} games")
 
     print("\n[4b] Fetching team stats from afltables...")
-    stats_lookup = build_stats_lookup(START_YEAR, END_YEAR)
+    # Range includes the current season: prediction features need this year's
+    # rolling stats. Current-season pages cache per-game, so runs stay incremental.
+    stats_lookup = build_stats_lookup(START_YEAR, current_year)
     print(f"  Team-game stat entries: {len(stats_lookup)}")
 
     print("\n[5/6] Building training features + training models...")
-    elo_lookup, current_elo = compute_elo(df)
+    elo_lookup, _ = compute_elo(df)             # training-window Elo, keyed by df index
+    _, current_elo = compute_elo(context_df)    # ratings entering the next round, incl. this season
     feat_df = build_training_features(df, tips_lookup=tips_lookup, elo_lookup=elo_lookup, stats_lookup=stats_lookup)
     print(f"  Feature rows: {len(feat_df)}")
     model, margin_model, stacker, accuracy = train_ensemble(feat_df)
@@ -300,7 +310,7 @@ def run():
     upcoming_tips   = fetch_upcoming_tips(current_year, round_num) if round_num else []
     upcoming_lookup = _build_tips_lookup(upcoming_tips)
     print(f"  Tipster picks available: {len(upcoming_lookup)}/{len(games)} games")
-    pred_df = build_prediction_features(df, games, tips_lookup=upcoming_lookup, current_elo=current_elo, stats_lookup=stats_lookup)
+    pred_df = build_prediction_features(context_df, games, tips_lookup=upcoming_lookup, current_elo=current_elo, stats_lookup=stats_lookup)
     results = predict(pred_df, model, margin_model=margin_model, stacker=stacker)
 
     os.makedirs(DOCS_DIR, exist_ok=True)

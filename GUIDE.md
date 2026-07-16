@@ -53,7 +53,7 @@ Free, no authentication required. Three endpoints are used:
 
 Per-game team statistics scraped from individual match pages. Used to compute rolling team stat averages as additional features.
 
-**Scraping approach:** `afl_tables.py` fetches `seas/{year}.html` to discover all game URLs for a season, then scrapes each match page (`stats/games/{year}/XXXXX.html`) for the team-level Totals row. Only regular-season rounds are included (finals excluded).
+**Scraping approach:** `afl_tables.py` fetches `seas/{year}.html` to discover all game URLs for a season, then scrapes each match page (`stats/games/{year}/XXXXX.html`) for the team-level Totals row. Only regular-season rounds are included (finals excluded). The current season is scraped too (for prediction-context rolling stats): the aggregated season cache is skipped for the current year, but individual game pages still cache, so in-season runs only fetch the new week's games.
 
 **Stats collected per game per team:**
 
@@ -81,7 +81,7 @@ Fetches incomplete games for the current year and selects the earliest incomplet
 Downloads all completed games in the training range via Squiggle. Builds a flat list of game objects, each containing team names, scores, venue, date, and round.
 
 ### Step 3 — Process games
-Converts the raw game list to a cleaned pandas DataFrame:
+Converts the raw game list to a cleaned pandas DataFrame. Two frames are built: the **training frame** (completed seasons only — what the models are fitted on) and the **prediction context** (training seasons *plus* the current season's completed games), so that form, rest, Elo, and rolling stats reflect the season being predicted. Processing steps:
 - Filters to `complete == 100` (finished games only)
 - Converts scores to numeric
 - Derives `home_win` (1 if home team won, 0 otherwise; draws treated as home loss — extremely rare in modern AFL)
@@ -99,7 +99,9 @@ Scrapes per-game team statistics from afltables.com for the training range. Buil
 For every completed game in the training set, computes 31 features using only data available *before* that game (no data leakage). Then trains the model stack on the resulting feature matrix: a classifier for win probability, a regressor for predicted point margin, and the logistic-regression stacker that blends them. See the Features and Models sections below.
 
 ### Step 6 — Predict next round
-Using the round found in Step 1, fetches that round's tipster picks, computes features using all training history as context, and applies the model stack to generate win probabilities. Writes `docs/index.html`.
+Using the round found in Step 1, fetches that round's tipster picks, computes features using the prediction context (all training history **plus the current season's completed games**), and applies the model stack to generate win probabilities. Writes `docs/index.html`.
+
+Until 2026-07-17 the prediction context excluded the current season entirely — mid-season predictions used end-of-*last*-season form, rest, and Elo (see `docs/decisions/prediction_context_current_season.md`).
 
 ---
 

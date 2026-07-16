@@ -36,6 +36,7 @@ venv setup: `C:\Users\Lach\miniconda3\python.exe -m venv .venv`, then `.venv\Scr
 - **Each March: check the Actions tab.** GitHub disables scheduled workflows after 60 days of repo inactivity, and the paused off-season provides no commits to keep it alive — re-enable the workflow if it was disabled (see `docs/decisions/offseason_pause.md`).
 - **Never commit a locally generated `docs/index.html`.** Git can silently mis-merge the generated HTML with the bot's version — no conflict reported, corrupt table on the live site (happened 2026-07-10; see `docs/decisions/generated_html_bot_owned.md`).
 - The model has **31 features** — `FEATURE_COLS` in `features.py` is the source of truth; update GUIDE.md and the dashboard if it changes.
+- Training frame and prediction context are **different DataFrames**: models train on completed seasons only, but prediction features are computed over training seasons + the current season's completed games. Don't collapse them back into one (see `docs/decisions/prediction_context_current_season.md`).
 - Squiggle API: semicolons in query params must NOT be URL-encoded — URLs are built manually in `fetch_data.py`. A descriptive User-Agent is required.
 - `.cache/` is git-ignored locally but persisted on GitHub Actions via `actions/cache` (key prefix `afltables-`); the current season is never cached.
 - `predicted_winner` comes from the classifier but `predicted_margin` from the regressor — they can disagree (see private ideas for the open fix).
